@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/components/alert_card.dart';
 import 'package:fyp2_babyguard/components/header_bar.dart';
+import 'package:fyp2_babyguard/pages/report_details_page.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
+import 'package:fyp2_babyguard/components/report_components.dart';
+
 
 class ReportPage extends StatelessWidget {
   const ReportPage({super.key});
@@ -17,6 +20,37 @@ class ReportPage extends StatelessWidget {
         time: DateTime(today.year, today.month, today.day, 11, 40),
         onTap: () {
           // TODO: navigate to alert details
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ReportDetailsPage(
+                heroImage: AssetImage('assets/images/baby_preview.jpg'),
+                timestamp: '11:40 AM',
+                alertTitle: 'High Risk Alert',
+                alertBody: 'Baby detected in prone position. Asphyxia cry is detected. Take action immediately!',
+                riskLevel: 'HIGH',
+                insights: [
+                  InsightItem(
+                    image: AssetImage('assets/images/gradcam1.png'),
+                    title: 'Distressed face',
+                    body: 'The model detected distress, focusing on the lower face and mouth, where discomfort cues typically appear.',
+                  ),
+                  InsightItem(
+                    image: AssetImage('assets/images/gradcam1.png'),
+                    title: 'Distressed face',
+                    body: 'The model detected distress, focusing on the lower face and mouth, where discomfort cues typically appear.',
+                  ),
+                ],
+                metrics: {
+                  'Distressed face': 0.90,
+                  'Abnormal Pose': 0.94,
+                  'Asphyxia cry': 0.80,
+                },
+                combinedRisk: 'HIGH',
+              ),
+            ),
+);
+
         },
       ),
       AlertItem(

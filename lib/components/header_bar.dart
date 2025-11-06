@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
 
-class HeaderBar extends StatelessWidget {
+class HeaderBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final Widget? trailing;
   final Widget? leading;
@@ -14,17 +14,18 @@ class HeaderBar extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  Size get preferredSize => const Size.fromHeight(70); // content height only
+
+  @override
   Widget build(BuildContext context) {
+    final top = MediaQuery.of(context).padding.top; // status bar height
+
     return Container(
-      width: double.infinity,
-      height: 70, // adjustable height
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      // occupy status bar + header height, so it starts at absolute top
+      height: top + preferredSize.height,
+      padding: EdgeInsets.only(top: top, left: 16, right: 16),
       decoration: const BoxDecoration(
         color: white,
-        // borderRadius: BorderRadius.only(
-        //   bottomLeft: Radius.circular(16),
-        //   bottomRight: Radius.circular(16),
-        // ),
         boxShadow: [
           BoxShadow(
             color: Colors.black12,
@@ -36,7 +37,7 @@ class HeaderBar extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          leading ?? const SizedBox(width: 40), // placeholder if no back button
+          leading ?? const SizedBox(width: 40),
           Text(
             title,
             style: const TextStyle(
@@ -45,7 +46,7 @@ class HeaderBar extends StatelessWidget {
               color: black,
             ),
           ),
-          trailing ?? const SizedBox(width: 40), // keep symmetry
+          trailing ?? const SizedBox(width: 40),
         ],
       ),
     );

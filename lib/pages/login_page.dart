@@ -26,7 +26,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: backgroundWhite,
+      backgroundColor: white,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 140, 24, 24),
@@ -84,6 +84,29 @@ class _LoginPageState extends State<LoginPage> {
                       (v == null || v.isEmpty) ? 'Enter password' : null,
                 ),
 
+                // Forgot password link
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.pushNamed(context, '/forgot'); // navigate to ForgotPasswordPage
+                    },
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text(
+                      'Forgot password?',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
+
                 const SizedBox(height: 45),
 
                 // Login button
@@ -105,9 +128,7 @@ class _LoginPageState extends State<LoginPage> {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Logging in…')),
                         );
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(builder: (_) => const HomePage()),
-                        );
+                        Navigator.pushReplacementNamed(context, '/home');
                       }
                     },
                     child: const Text(
@@ -137,9 +158,7 @@ class _LoginPageState extends State<LoginPage> {
                     TextButton(
                       onPressed: () {
                         // TODO: push to Sign up page
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const SignUpPage()),
-                        );
+                        Navigator.pushNamed(context, '/signup');
                       },
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
@@ -189,7 +208,7 @@ class _InputBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: lightBlue, // soft light input background
+        color: gray, // soft light input background
         borderRadius: BorderRadius.circular(16),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14),

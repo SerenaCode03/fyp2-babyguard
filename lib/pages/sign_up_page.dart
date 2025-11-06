@@ -55,7 +55,7 @@ class _SignUpPageState extends State<SignUpPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: backgroundWhite,
+      backgroundColor: white,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
@@ -183,11 +183,7 @@ class _SignUpPageState extends State<SignUpPage> {
                     TextButton(
                       onPressed: () {
                         // Go to Login page
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const LoginPage(),
-                          ),
-                        );
+                        Navigator.pushNamed(context, '/login');
                       },
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
@@ -237,7 +233,7 @@ class _InputBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: lightBlue,          // matches mockup field background
+        color: gray,          // matches mockup field background
         borderRadius: BorderRadius.circular(16),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14),
