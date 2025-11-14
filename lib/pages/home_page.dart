@@ -107,6 +107,7 @@ class _HomeContentState extends State<_HomeContent> {
   Future<bool> _requestCameraAndMic() async {
     final cameraStatus = await Permission.camera.request();
     final micStatus = await Permission.microphone.request();
+    // final storageStatus = await Permission.storage.request();
 
     debugPrint('[_requestCameraAndMic] camera: $cameraStatus, mic: $micStatus');
 
@@ -169,20 +170,32 @@ class _HomeContentState extends State<_HomeContent> {
     }
 
 
-    final directory = await getApplicationDocumentsDirectory();
-    final filePath =
-        '${directory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.aac'; // <-- CHANGE EXTENSION
+    // final directory = await getApplicationDocumentsDirectory();
+    final publicDirectory = await getExternalStorageDirectory();
+    // final filePath =
+    //     '${directory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.aac'; // <-- CHANGE EXTENSION
+    // final filePath =
+    // '${directory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav';
+    if (publicDirectory == null) {
+        debugPrint('[_startAudio] ERROR: Public storage directory is null. Check permissions and device storage.');
+        // Optionally show a user-facing error message here
+        return; // Halt execution if the public directory isn't available
+    }
 
-    debugPrint('[_startAudio] Will record AAC to: $filePath');
+    final filePath ='${publicDirectory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav';
+
+    debugPrint('[_startAudio] Will record WAV to: $filePath');
 
     try {
       await _recorder.startRecorder(
         toFile: filePath,
-        codec: Codec.aacADTS,
-        sampleRate: 44100,
+        // codec: Codec.aacADTS,
+        codec: Codec.pcm16WAV,
+        sampleRate: 16000,
         numChannels: 1,
         audioSource: AudioSource.microphone,
       );
+    
     } catch (e) {
       debugPrint('[_startAudio] startRecorder FAILED: $e');
       return;
