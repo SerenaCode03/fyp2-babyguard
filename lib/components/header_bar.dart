@@ -7,11 +7,11 @@ class HeaderBar extends StatelessWidget implements PreferredSizeWidget {
   final Widget? leading;
 
   const HeaderBar({
-    Key? key,
+    super.key,
     required this.title,
     this.trailing,
     this.leading,
-  }) : super(key: key);
+  });
 
   @override
   Size get preferredSize => const Size.fromHeight(70); // content height only

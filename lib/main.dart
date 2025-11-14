@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
 import 'package:fyp2_babyguard/pages/forgot_password_page.dart';
 import 'package:fyp2_babyguard/pages/home_page.dart';
 import 'package:fyp2_babyguard/pages/sign_up_page.dart';
@@ -6,7 +8,16 @@ import 'package:fyp2_babyguard/utilities/color.dart';
 import 'package:fyp2_babyguard/pages/login_page.dart';
 import 'package:fyp2_babyguard/pages/landing_page.dart'; // add this
 
-void main() => runApp(const MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Lock app to portrait by default
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
+
+  runApp(const MyApp());
+}
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

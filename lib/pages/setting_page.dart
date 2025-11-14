@@ -113,7 +113,6 @@ class _SettingsCard extends StatelessWidget {
     required this.title,
     this.onTap,
     this.titleStyle,
-    super.key,
   });
 
   final Widget leading;

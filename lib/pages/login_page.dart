@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:fyp2_babyguard/pages/home_page.dart';
-import 'package:fyp2_babyguard/pages/sign_up_page.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
 
 class LoginPage extends StatefulWidget {

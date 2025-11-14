@@ -5,10 +5,10 @@ typedef OnNavTap = void Function(int index);
 
 class BottomNavBar extends StatelessWidget {
   const BottomNavBar({
-    Key? key,
+    super.key,
     required this.currentIndex,
     required this.onTap,
-  }) : super(key: key);
+  });
 
   final int currentIndex;
   final OnNavTap onTap;

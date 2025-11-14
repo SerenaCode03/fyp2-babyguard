@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
-import 'package:fyp2_babyguard/pages/login_page.dart'; // if you named it differently, adjust
+// if you named it differently, adjust
 
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});

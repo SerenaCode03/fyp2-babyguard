@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
-import 'package:fyp2_babyguard/pages/login_page.dart';
 
 class LandingPage extends StatelessWidget {
   const LandingPage({super.key});
@@ -85,7 +84,7 @@ class LandingPage extends StatelessWidget {
 }
 
 class _StartButton extends StatefulWidget {
-  const _StartButton({required this.onTap, super.key});
+  const _StartButton({required this.onTap});
   final VoidCallback onTap;
 
   @override
