@@ -193,7 +193,8 @@ class _HomeContentState extends State<_HomeContent> {
         codec: Codec.pcm16WAV,
         sampleRate: 16000,
         numChannels: 1,
-        audioSource: AudioSource.microphone,
+        // audioSource: AudioSource.microphone,
+        audioSource: AudioSource.unprocessed,
       );
     
     } catch (e) {
