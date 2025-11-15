@@ -26,15 +26,21 @@ android {
     namespace "com.example.fyp2_babyguard"
     // compileSdk flutter.compileSdkVersion
     compileSdk 36 // <-- changed from flutter.compileSdkVersion
-    ndkVersion flutter.ndkVersion
+    // ndkVersion flutter.ndkVersion
 
+    java {
+        toolchain {
+            languageVersion.set(JavaLanguageVersion.of(21))
+        }
+    }
+    
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
     }
 
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = '21'
     }
 
     sourceSets {
