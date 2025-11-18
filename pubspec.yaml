@@ -38,6 +38,8 @@ dependencies:
   camera: ^0.11.0+1
   taudio: ^10.0.0
   record: ^6.0.0
+  tflite_flutter: ^0.11.0
+  image: ^4.5.0
 
 
 
@@ -70,6 +72,7 @@ flutter:
     - assets/images/landing_page_image.png
     - assets/images/baby_preview.jpg
     - assets/images/gradcam1.png
+    - assets/models/face_detection_short_range.tflite
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
 
