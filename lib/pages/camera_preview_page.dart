@@ -1,10 +1,16 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 
-import '../services/face_detector.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart'
+    as mlkit;
+
 import '../services/pose_classifier.dart';
+import '../services/expression_classifier.dart';
 
 class CameraPreviewPage extends StatefulWidget {
   final CameraController controller;
@@ -21,17 +27,19 @@ class CameraPreviewPage extends StatefulWidget {
 }
 
 class _CameraPreviewPageState extends State<CameraPreviewPage> {
-  final FaceDetector _faceDetector = FaceDetector();
   final PoseClassifier _poseClassifier = PoseClassifier();
+  final ExpressionClassifier _expressionClassifier = ExpressionClassifier();
 
-  bool _pipelineRunning = false;       // STRICT FACE GATE
-  bool _isPoseProcessing = false;
+  late final mlkit.FaceDetector _mlkitFaceDetector;
+
+  bool _pipelineRunning = false;    // set to true after first face is seen
+  bool _isProcessing = false;
 
   CameraImage? _latestImage;
   Timer? _poseTimer;
 
   PoseResult? _lastPoseResult;
-  bool _faceDetectedOnce = false;      // For UI only
+  ExpressionResult? _lastExpressionResult;
 
   @override
   void initState() {
@@ -46,17 +54,23 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     widget.initializeFuture.then((_) async {
       if (!mounted) return;
 
-      await _faceDetector.loadModel();
       await _poseClassifier.loadModel();
+      await _expressionClassifier.loadModel();
+
+      _mlkitFaceDetector = mlkit.FaceDetector(
+        options: mlkit.FaceDetectorOptions(
+          performanceMode: mlkit.FaceDetectorMode.accurate,
+          enableLandmarks: false,
+          enableContours: false,
+        ),
+      );
 
       _startImageStream();
-      _startFaceGateLoop();    // 🧠 Detect face UNTIL pipeline starts
+      _startFaceGateLoop();   // wait for first face to start pipeline
     });
   }
 
-  //----------------------------------------------------------------------
-  // 1. FACE GATE LOOP — run until face detected ONCE
-  //----------------------------------------------------------------------
+  // ---- Face gate loop: runs until we see a face once ----
   void _startFaceGateLoop() {
     Timer.periodic(const Duration(milliseconds: 500), (timer) async {
       if (!mounted) {
@@ -64,34 +78,31 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         return;
       }
 
-      // If pipeline already running → stop this loop
       if (_pipelineRunning) {
         timer.cancel();
-        _startPoseTimer();        // Start pose loop after gate
+        _startPoseTimer(); // start periodic pipeline
         return;
       }
 
       if (_latestImage == null) return;
 
       try {
-        final hasFace = await _faceDetector.hasFace(_latestImage!);
+        final inputImage = _inputImageFromCameraImage(_latestImage!);
+        final faces = await _mlkitFaceDetector.processImage(inputImage);
 
-        if (hasFace) {
-          debugPrint("FACE DETECTED — STARTING PIPELINE");
+        if (faces.isNotEmpty) {
+          debugPrint('MLKit gate: face detected, starting pipeline');
           setState(() {
             _pipelineRunning = true;
-            _faceDetectedOnce = true;
           });
         }
       } catch (e) {
-        debugPrint("Face gate error: $e");
+        debugPrint('MLKit gate error: $e');
       }
     });
   }
 
-  //----------------------------------------------------------------------
-  // 2. IMAGE STREAM — keep saving latest frame
-  //----------------------------------------------------------------------
+  // ---- Stream camera frames, keep the latest ----
   void _startImageStream() {
     if (widget.controller.value.isStreamingImages) return;
 
@@ -100,48 +111,136 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     });
   }
 
-  //----------------------------------------------------------------------
-  // 3. POSE TIMER — runs every 5 seconds after pipeline starts
-  //----------------------------------------------------------------------
+  // ---- Run pose + expression every 5 seconds once pipelineRunning ----
   void _startPoseTimer() {
     _poseTimer?.cancel();
     _poseTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_pipelineRunning) {
-        _runPoseCheck();
+        _runMainPipeline();
       }
     });
   }
 
-  Future<void> _runPoseCheck() async {
-    if (_isPoseProcessing) return;
+  Future<void> _runMainPipeline() async {
+    if (_isProcessing) return;
     if (_latestImage == null) return;
 
-    _isPoseProcessing = true;
+    _isProcessing = true;
+    final image = _latestImage!;
 
     try {
-      final poseResult = await _poseClassifier.classifyFromCameraImage(
-        _latestImage!,
-      );
+      // 1) Pose classification (always)
+      final poseResult = await _poseClassifier.classifyFromCameraImage(image);
+
+      // 2) Facial expression classification ONLY if MLKit sees a face
+      ExpressionResult? expressionResult;
+
+      try {
+        final inputImage = _inputImageFromCameraImage(image);
+        final faces = await _mlkitFaceDetector.processImage(inputImage);
+
+        if (faces.isNotEmpty) {
+          final face = faces.first;
+          final Rect faceRect = face.boundingBox;
+
+          expressionResult =
+              await _expressionClassifier.classifyFromCameraImage(
+            image,
+            faceRect: faceRect,
+          );
+        } else {
+          debugPrint('MLKit: no face for this frame, skip expression');
+        }
+      } catch (e) {
+        debugPrint('MLKit face detection (pipeline) error: $e');
+      }
 
       if (!mounted) return;
 
       setState(() {
         _lastPoseResult = poseResult;
+        _lastExpressionResult = expressionResult; // may be null if no face
       });
-
-      // TODO later: save cropped frame for explainable AI
-      // _savePoseFrameForExplainableAI(_latestImage!, poseResult);
-
     } catch (e) {
-      debugPrint("Pose classification error: $e");
+      debugPrint('Main pipeline error: $e');
     } finally {
-      _isPoseProcessing = false;
+      _isProcessing = false;
     }
   }
 
-  //----------------------------------------------------------------------
-  //   UI + Cleanup
-  //----------------------------------------------------------------------
+  // ---- MLKit helpers: CameraImage -> InputImage ----
+
+  mlkit.InputImage _inputImageFromCameraImage(CameraImage image) {
+    final bytes = _concatenatePlanes(image.planes);
+
+    final Size imageSize =
+        Size(image.width.toDouble(), image.height.toDouble());
+
+    final camera = widget.controller.description;
+    
+    // Convert camera rotation to MLKit rotation
+    final rotation = _mapRotation(camera.sensorOrientation);
+
+    // Convert camera format to MLKit format
+    final format = _mapFormat(image.format.raw);
+
+    // NEW: Use InputImageMetadata instead of InputImageData
+    // We use the bytesPerRow from the first plane (Y-plane)
+    final inputImageMetadata = mlkit.InputImageMetadata(
+      size: imageSize,
+      rotation: rotation,
+      format: format,
+      bytesPerRow: image.planes[0].bytesPerRow, 
+    );
+
+    return mlkit.InputImage.fromBytes(
+      bytes: bytes,
+      metadata: inputImageMetadata,
+    );
+  }
+
+  // Helper to map standard Camera integers to MLKit Rotation Enum
+  mlkit.InputImageRotation _mapRotation(int rotation) {
+    switch (rotation) {
+      case 90:
+        return mlkit.InputImageRotation.rotation90deg;
+      case 180:
+        return mlkit.InputImageRotation.rotation180deg;
+      case 270:
+        return mlkit.InputImageRotation.rotation270deg;
+      case 0:
+      default:
+        return mlkit.InputImageRotation.rotation0deg;
+    }
+  }
+
+  // Helper to map standard Camera formats to MLKit Format Enum
+  mlkit.InputImageFormat _mapFormat(dynamic format) {
+    // Most Android devices use NV21 (YUV_420_888 in Flutter usually maps to this)
+    // iOS usually uses bgra8888
+    switch (format) {
+      case 35: // YUV_420_888 (Android)
+      case 17: // NV21
+        return mlkit.InputImageFormat.nv21;
+      case 842094169: // YV12
+        return mlkit.InputImageFormat.yv12; 
+      case 32: // BGRA8888 (iOS)
+        return mlkit.InputImageFormat.bgra8888;
+      default:
+        return mlkit.InputImageFormat.nv21; // Fallback
+    }
+  }
+
+  Uint8List _concatenatePlanes(List<Plane> planes) {
+    final WriteBuffer allBytes = WriteBuffer();
+    for (final Plane plane in planes) {
+      allBytes.putUint8List(plane.bytes);
+    }
+    return allBytes.done().buffer.asUint8List();
+  }
+
+  // ---- UI + Lifecycle ----
+
   @override
   void dispose() {
     _poseTimer?.cancel();
@@ -150,8 +249,9 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       widget.controller.stopImageStream();
     }
 
-    _faceDetector.dispose();
     _poseClassifier.dispose();
+    _expressionClassifier.dispose();
+    _mlkitFaceDetector.close();
 
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([
@@ -181,24 +281,20 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   }
 
   Future<void> _handleBack() async {
-    await _restorePortrait();
-    if (mounted) {
-      Navigator.pop(context);
-    }
-  }
-
-  Future<void> _restorePortrait() async {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
     ]);
+    if (mounted) {
+      Navigator.pop(context);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async {
-        await _restorePortrait();
+        await _handleBack();
         return true;
       },
       child: Scaffold(
@@ -216,9 +312,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
               },
             ),
 
-            //---------------------------------------
-            //   DEBUG OVERLAY
-            //---------------------------------------
+            // Debug overlay
             Positioned(
               bottom: 20,
               left: 20,
@@ -245,14 +339,20 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
                           : 'Pose: --',
                       style: const TextStyle(color: Colors.white),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _lastExpressionResult != null
+                          ? 'Expression: ${_lastExpressionResult!.label} '
+                            '(${(_lastExpressionResult!.confidence * 100).toStringAsFixed(1)}%)'
+                          : 'Expression: (no face)',
+                      style: const TextStyle(color: Colors.white),
+                    ),
                   ],
                 ),
               ),
             ),
 
-            //---------------------------------------
-            //   BACK BUTTON
-            //---------------------------------------
+            // Back button
             Positioned(
               top: 20,
               left: 20,
