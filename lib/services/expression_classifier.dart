@@ -1,9 +1,13 @@
+import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 import 'dart:ui' show Rect;
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 
 class ExpressionResult {
   final String label;
@@ -50,86 +54,89 @@ class ExpressionClassifier {
 
   /// If [faceRect] is provided: crop that region and send to model.
   /// If null: fallback to center-square crop.
-  Future<ExpressionResult> classifyFromCameraImage(
-    CameraImage image, {
-    Rect? faceRect,
-  }) async {
-    if (_interpreter == null) {
-      throw StateError('ExpressionClassifier: call loadModel() before classify.');
-    }
+  Future<ExpressionResult?> classifyFromCameraImage(
+  CameraImage image, {
+  required Rect faceRect,   // now REQUIRED
+}) async {
+  if (_interpreter == null) {
+    throw StateError('ExpressionClassifier: loadModel() first.');
+  }
 
-    // 1) YUV -> RGB
-    final rgbImage = _yuv420ToRgb(image);
+  // 1) Convert YUV → RGB
+  final rgbImage = _yuv420ToRgb(image);
 
-    // 2) Crop face region if available, otherwise center crop
-    img.Image crop;
-    if (faceRect != null) {
-      crop = _cropRect(rgbImage, faceRect);
-    } else {
-      crop = _centerCropSquare(rgbImage);
-    }
+  // 2) Expand bounding box
+  final paddedRect =
+      _expandRect(faceRect, rgbImage.width, rgbImage.height, paddingRatio: 0.45);
 
-    // 3) Resize to model input size
-    const inputSize = 224;
-    final resized = img.copyResize(
-      crop,
-      width: inputSize,
-      height: inputSize,
-      interpolation: img.Interpolation.linear,
-    );
+  // 3) Crop region
+  final faceCrop = _cropRect(rgbImage, paddedRect);
 
-    // Placeholder: save for XAI later if you want
-    // _saveFaceCropForExplainableAI(resized);
+  // 4) Re-square (important!)
+  final squareFace = _centerCropSquare(faceCrop);
 
-    // 4) Build input tensor [1, 224, 224, 3]
-    final input = List.generate(
-      1,
+  // 5) Save debug
+  saveDebugFace(squareFace);
+
+  // 6) Resize to 224×224
+  const inputSize = 224;
+  final resized = img.copyResize(
+    squareFace,
+    width: inputSize,
+    height: inputSize,
+    interpolation: img.Interpolation.linear,
+  );
+
+  // 7) Build input tensor
+  final input = List.generate(
+    1,
+    (_) => List.generate(
+      inputSize,
       (_) => List.generate(
         inputSize,
-        (_) => List.generate(
-          inputSize,
-          (_) => List.filled(3, 0.0),
-        ),
+        (_) => List.filled(3, 0.0),   // correct shape
       ),
-    );
+    ),
+  );
 
-    for (int y = 0; y < inputSize; y++) {
+  for (int y = 0; y < inputSize; y++) {
       for (int x = 0; x < inputSize; x++) {
         final pixel = resized.getPixel(x, y);
-        input[0][y][x][0] = pixel.r/ 255.0;
-        input[0][y][x][1] = pixel.g / 255.0;
-        input[0][y][x][2] = pixel.b / 255.0;
+        
+        // img.Image v4 syntax
+        final r = pixel.r;
+        final g = pixel.g;
+        final b = pixel.b;
+
+        // FORMULA: (value - 127.5) / 127.5
+        // This converts 0 -> -1.0 and 255 -> 1.0
+        input[0][y][x][0] = (r - 127.5) / 127.5;
+        input[0][y][x][1] = (g - 127.5) / 127.5;
+        input[0][y][x][2] = (b - 127.5) / 127.5;
       }
     }
 
-    // 5) Output buffer [1, numClasses]
-    final output = List.generate(
-      1,
-      (_) => List.filled(labels.length, 0.0),
-    );
+  // 8) Output
+  final output = List.generate(1, (_) => List.filled(labels.length, 0.0));
+  _interpreter!.run(input, output);
 
-    _interpreter!.run(input, output);
+  // 9) Softmax
+  final probs = _softmax(output[0]);
 
-    // 6) Softmax + argmax
-    final probs = _softmax(output[0]);
-    int bestIdx = 0;
-    double bestProb = probs[0];
-    for (int i = 1; i < probs.length; i++) {
-      if (probs[i] > bestProb) {
-        bestProb = probs[i];
-        bestIdx = i;
-      }
-    }
+  // 10) Apply threshold logic
+  final double distressedProb = probs[0];
+  final double normalProb = probs[1];
 
-    final result = ExpressionResult(
-      label: labels[bestIdx],
-      confidence: bestProb,
-      rawProbs: probs,
-    );
+  final label = distressedProb >= 0.40 ? 'Distressed' : 'Normal';
+  final confidence =
+      label == 'Distressed' ? distressedProb : normalProb;
 
-    debugPrint('ExpressionClassifier: $result');
-    return result;
-  }
+  return ExpressionResult(
+    label: label,
+    confidence: confidence,
+    rawProbs: probs,
+  );
+}
 
   // ---- Helpers ----
 
@@ -165,8 +172,29 @@ class ExpressionClassifier {
     );
   }
 
-  void _saveFaceCropForExplainableAI(img.Image faceCrop) {
-    // TODO: implement saving later
+  Future<void> saveDebugFace(img.Image faceCrop) async {
+    // Get the same public directory you used for audio
+    final directory = await getExternalStorageDirectory();
+
+    if (directory == null) {
+      debugPrint("Error: External storage directory not available");
+      return;
+    }
+
+    final folder = Directory('${directory.path}/face_debug');
+
+    if (!(await folder.exists())) {
+      await folder.create(recursive: true);
+    }
+
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final filePath = '${folder.path}/face_$timestamp.png';
+
+    final file = File(filePath);
+
+    await file.writeAsBytes(img.encodePng(faceCrop));
+
+    debugPrint('Saved debug face: $filePath');
   }
 
   img.Image _yuv420ToRgb(CameraImage image) {
@@ -206,6 +234,22 @@ class ExpressionClassifier {
     }
 
     return rgbImage;
+  }
+
+  Rect _expandRect(Rect rect, int imgWidth, int imgHeight,
+    {double paddingRatio = 0.25}) {
+
+    // padding amounts
+    final double padW = rect.width * paddingRatio;
+    final double padH = rect.height * paddingRatio;
+
+    // Expand rectangle
+    double newLeft = (rect.left - padW).clamp(0, imgWidth - 1).toDouble();
+    double newTop = (rect.top - padH).clamp(0, imgHeight - 1).toDouble();
+    double newRight = (rect.right + padW).clamp(newLeft + 1, imgWidth).toDouble();
+    double newBottom = (rect.bottom + padH).clamp(newTop + 1, imgHeight).toDouble();
+
+    return Rect.fromLTRB(newLeft, newTop, newRight, newBottom);
   }
 
   List<double> _softmax(List<double> logits) {
