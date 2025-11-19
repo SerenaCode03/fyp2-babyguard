@@ -73,6 +73,9 @@ flutter:
     - assets/images/baby_preview.jpg
     - assets/images/gradcam1.png
     - assets/models/face_detection_short_range.tflite
+    - assets/models/efficientnet_b0_fp16.tflite
+    - assets/models/mobilenetv3_fp16.tflite
+    - assets/models/resnet18_fp16.tflite
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
 

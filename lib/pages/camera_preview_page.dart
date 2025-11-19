@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 
 import '../services/face_detector.dart';
+import '../services/pose_classifier.dart';
 
 class CameraPreviewPage extends StatefulWidget {
   final CameraController controller;
@@ -20,16 +22,21 @@ class CameraPreviewPage extends StatefulWidget {
 
 class _CameraPreviewPageState extends State<CameraPreviewPage> {
   final FaceDetector _faceDetector = FaceDetector();
-  bool _isDetecting = false;
-  int _frameCount = 0;
+  final PoseClassifier _poseClassifier = PoseClassifier();
 
-  bool _faceDetected = false; // condition to enter main pipeline
+  bool _pipelineRunning = false;       // STRICT FACE GATE
+  bool _isPoseProcessing = false;
+
+  CameraImage? _latestImage;
+  Timer? _poseTimer;
+
+  PoseResult? _lastPoseResult;
+  bool _faceDetectedOnce = false;      // For UI only
 
   @override
   void initState() {
     super.initState();
 
-    // Force landscape + immersive UI
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -38,81 +45,119 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
     widget.initializeFuture.then((_) async {
       if (!mounted) return;
+
       await _faceDetector.loadModel();
+      await _poseClassifier.loadModel();
+
       _startImageStream();
+      _startFaceGateLoop();    // 🧠 Detect face UNTIL pipeline starts
     });
   }
 
-  void _startImageStream() {
-    if (widget.controller.value.isStreamingImages) return;
-    debugPrint('Starting image stream');
+  //----------------------------------------------------------------------
+  // 1. FACE GATE LOOP — run until face detected ONCE
+  //----------------------------------------------------------------------
+  void _startFaceGateLoop() {
+    Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
 
-    widget.controller.startImageStream((CameraImage image) async {
-      // Throttle: every 3rd frame
-      _frameCount++;
-      if (_frameCount % 3 != 0) return;
+      // If pipeline already running → stop this loop
+      if (_pipelineRunning) {
+        timer.cancel();
+        _startPoseTimer();        // Start pose loop after gate
+        return;
+      }
 
-      // Debug: confirm frames are arriving
-      debugPrint('Image frame received #$_frameCount');
-
-      if (_isDetecting) return;
-      _isDetecting = true;
+      if (_latestImage == null) return;
 
       try {
-        final hasFace = await _faceDetector.hasFace(image);
+        final hasFace = await _faceDetector.hasFace(_latestImage!);
 
-        if (!mounted) return;
-
-        setState(() {
-          _faceDetected = hasFace;
-        });
-
-        // This is your gate: only run main pipeline if face is present
         if (hasFace) {
-          _runMainPipeline();
-        } else {
-          // You can decide: either pause pipeline or run only pose/cry here
+          debugPrint("FACE DETECTED — STARTING PIPELINE");
+          setState(() {
+            _pipelineRunning = true;
+            _faceDetectedOnce = true;
+          });
         }
       } catch (e) {
-        debugPrint('Face detection error: $e');
-      } finally {
-        _isDetecting = false;
+        debugPrint("Face gate error: $e");
       }
     });
   }
 
-  void _runMainPipeline() {
-    // TODO:
-    // Call your:
-    // - facial expression classification
-    // - pose classification
-    // - cry classification (after cry condition check)
-    //
-    // The face detector here is just the first gate:
-    // if (!_faceDetected) return;
+  //----------------------------------------------------------------------
+  // 2. IMAGE STREAM — keep saving latest frame
+  //----------------------------------------------------------------------
+  void _startImageStream() {
+    if (widget.controller.value.isStreamingImages) return;
+
+    widget.controller.startImageStream((CameraImage image) {
+      _latestImage = image;
+    });
   }
 
-  Future<void> _restorePortrait() async {
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    await SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-    ]);
+  //----------------------------------------------------------------------
+  // 3. POSE TIMER — runs every 5 seconds after pipeline starts
+  //----------------------------------------------------------------------
+  void _startPoseTimer() {
+    _poseTimer?.cancel();
+    _poseTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_pipelineRunning) {
+        _runPoseCheck();
+      }
+    });
   }
 
+  Future<void> _runPoseCheck() async {
+    if (_isPoseProcessing) return;
+    if (_latestImage == null) return;
+
+    _isPoseProcessing = true;
+
+    try {
+      final poseResult = await _poseClassifier.classifyFromCameraImage(
+        _latestImage!,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _lastPoseResult = poseResult;
+      });
+
+      // TODO later: save cropped frame for explainable AI
+      // _savePoseFrameForExplainableAI(_latestImage!, poseResult);
+
+    } catch (e) {
+      debugPrint("Pose classification error: $e");
+    } finally {
+      _isPoseProcessing = false;
+    }
+  }
+
+  //----------------------------------------------------------------------
+  //   UI + Cleanup
+  //----------------------------------------------------------------------
   @override
   void dispose() {
+    _poseTimer?.cancel();
+
     if (widget.controller.value.isStreamingImages) {
       widget.controller.stopImageStream();
     }
 
     _faceDetector.dispose();
+    _poseClassifier.dispose();
 
-    // IMPORTANT: do NOT dispose the controller here.
-    // We only restore orientation & system UI.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
     ]);
+
     super.dispose();
   }
 
@@ -142,6 +187,13 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     }
   }
 
+  Future<void> _restorePortrait() async {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
@@ -164,25 +216,43 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
               },
             ),
 
-             // Simple indicator of face presence (for debugging)
+            //---------------------------------------
+            //   DEBUG OVERLAY
+            //---------------------------------------
             Positioned(
               bottom: 20,
               left: 20,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.5),
+                  color: Colors.black.withOpacity(0.6),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(
-                  _faceDetected ? 'Face detected' : 'No face',
-                  style: const TextStyle(color: Colors.white),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _pipelineRunning
+                          ? 'Monitoring Active'
+                          : 'Waiting for Baby Face...',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _lastPoseResult != null
+                          ? 'Pose: ${_lastPoseResult!.label} '
+                            '(${(_lastPoseResult!.confidence * 100).toStringAsFixed(1)}%)'
+                          : 'Pose: --',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ],
                 ),
               ),
             ),
 
-            // Floating back button
+            //---------------------------------------
+            //   BACK BUTTON
+            //---------------------------------------
             Positioned(
               top: 20,
               left: 20,
