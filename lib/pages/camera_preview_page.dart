@@ -177,9 +177,15 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         Size(image.width.toDouble(), image.height.toDouble());
 
     final camera = widget.controller.description;
+    final deviceOrientation = widget.controller.value.deviceOrientation;
     
+    final rotation = _getRotation(
+      camera.sensorOrientation, 
+      deviceOrientation, 
+      camera.lensDirection
+    );
     // Convert camera rotation to MLKit rotation
-    final rotation = _mapRotation(camera.sensorOrientation);
+    // final rotation = _mapRotation(camera.sensorOrientation);
 
     // Convert camera format to MLKit format
     final format = _mapFormat(image.format.raw);
@@ -200,15 +206,46 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   }
 
   // Helper to map standard Camera integers to MLKit Rotation Enum
-  mlkit.InputImageRotation _mapRotation(int rotation) {
-    switch (rotation) {
+  mlkit.InputImageRotation _getRotation(
+    int sensorOrientation,
+    DeviceOrientation deviceOrientation,
+    CameraLensDirection lensDirection,
+  ) {
+    int deviceRotation = 0;
+    switch (deviceOrientation) {
+      case DeviceOrientation.portraitUp:
+        deviceRotation = 0;
+        break;
+      case DeviceOrientation.landscapeLeft:
+        deviceRotation = 90;
+        break;
+      case DeviceOrientation.portraitDown:
+        deviceRotation = 180;
+        break;
+      case DeviceOrientation.landscapeRight:
+        deviceRotation = 270;
+        break;
+    }
+
+    int rotationCompensation = 0;
+    if (lensDirection == CameraLensDirection.front) {
+      // Front camera logic
+      rotationCompensation = (sensorOrientation + deviceRotation) % 360;
+    } else {
+      // Back camera logic (Standard for baby monitors)
+      rotationCompensation = (sensorOrientation - deviceRotation + 360) % 360;
+    }
+
+    // Now map the calculated compensation to ML Kit enum
+    switch (rotationCompensation) {
+      case 0:
+        return mlkit.InputImageRotation.rotation0deg;
       case 90:
         return mlkit.InputImageRotation.rotation90deg;
       case 180:
         return mlkit.InputImageRotation.rotation180deg;
       case 270:
         return mlkit.InputImageRotation.rotation270deg;
-      case 0:
       default:
         return mlkit.InputImageRotation.rotation0deg;
     }
