@@ -12,9 +12,9 @@ import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fyp2_babyguard/pages/camera_preview_page.dart';
 
-import 'package:path_provider/path_provider.dart';
-import 'package:taudio/taudio.dart';
-import 'package:record/record.dart';
+// import 'package:path_provider/path_provider.dart';
+// import 'package:taudio/taudio.dart';
+// import 'package:record/record.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -80,9 +80,9 @@ class _HomeContent extends StatefulWidget {
 class _HomeContentState extends State<_HomeContent> {
   bool _monitoringActive = false;
   // final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
-  final AudioRecorder _audioRecorder = AudioRecorder();
-  bool _isRecording = false;
-  bool _recorderReady = false;
+  // final AudioRecorder _audioRecorder = AudioRecorder();
+  // bool _isRecording = false;
+  // bool _recorderReady = false;
 
   CameraController? _cameraController;
   Future<void>? _initializeControllerFuture;
@@ -154,8 +154,8 @@ class _HomeContentState extends State<_HomeContent> {
     _initializeControllerFuture = _cameraController!.initialize();
   }
 
-  Future<void> _startAudio() async {
-    debugPrint('[_startAudio] Called');
+  // Future<void> _startAudio() async {
+  //   debugPrint('[_startAudio] Called');
 
     // if (!_recorderReady) {
     //   debugPrint('[_startAudio] Recorder not ready, trying to init again...');
@@ -170,61 +170,61 @@ class _HomeContentState extends State<_HomeContent> {
     //   debugPrint('[_startAudio] Recorder is not in stopped state; aborting startRecorder.');
     //   return;
     // }
-    if (_isRecording) {
-      debugPrint('[_startAudio] Already recording, aborting.');
-      return;
-    }
+    // if (_isRecording) {
+    //   debugPrint('[_startAudio] Already recording, aborting.');
+    //   return;
+    // }
 
     // final directory = await getApplicationDocumentsDirectory();
-    final publicDirectory = await getExternalStorageDirectory();
+    // final publicDirectory = await getExternalStorageDirectory();
     // final filePath =
     //     '${directory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.aac'; // <-- CHANGE EXTENSION
     // final filePath =
     // '${directory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav';
-    if (publicDirectory == null) {
-        debugPrint('[_startAudio] ERROR: Public storage directory is null. Check permissions and device storage.');
-        // Optionally show a user-facing error message here
-        return; // Halt execution if the public directory isn't available
-    }
+  //   if (publicDirectory == null) {
+  //       debugPrint('[_startAudio] ERROR: Public storage directory is null. Check permissions and device storage.');
+  //       // Optionally show a user-facing error message here
+  //       return; // Halt execution if the public directory isn't available
+  //   }
 
-    final filePath ='${publicDirectory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav';
+  //   final filePath ='${publicDirectory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav';
 
-    debugPrint('[_startAudio] Will record WAV to: $filePath');
+  //   debugPrint('[_startAudio] Will record WAV to: $filePath');
 
-    try {
-      // await _recorder.startRecorder(
-      //   toFile: filePath,
-      //   // codec: Codec.aacADTS,
-      //   codec: Codec.pcm16WAV,
-      //   sampleRate: 16000,
-      //   numChannels: 1,
-      //   // audioSource: AudioSource.microphone,
-      //   audioSource: AudioSource.unprocessed,
-      // );
-      await _audioRecorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.wav, // This is your pcm16WAV
-          sampleRate: 16000,
-          numChannels: 1,
-          // Note: 'record' does not have an 'audioSource' property.
-          // It typically uses the default unprocessed input,
-          // which is exactly what we want to test.
-        ),
-        path: filePath,
-      );
+  //   try {
+  //     // await _recorder.startRecorder(
+  //     //   toFile: filePath,
+  //     //   // codec: Codec.aacADTS,
+  //     //   codec: Codec.pcm16WAV,
+  //     //   sampleRate: 16000,
+  //     //   numChannels: 1,
+  //     //   // audioSource: AudioSource.microphone,
+  //     //   audioSource: AudioSource.unprocessed,
+  //     // );
+  //     await _audioRecorder.start(
+  //       const RecordConfig(
+  //         encoder: AudioEncoder.wav, // This is your pcm16WAV
+  //         sampleRate: 16000,
+  //         numChannels: 1,
+  //         // Note: 'record' does not have an 'audioSource' property.
+  //         // It typically uses the default unprocessed input,
+  //         // which is exactly what we want to test.
+  //       ),
+  //       path: filePath,
+  //     );
 
-    } catch (e) {
-      debugPrint('[_startAudio] startRecorder FAILED: $e');
-      return;
-    }
+  //   } catch (e) {
+  //     debugPrint('[_startAudio] startRecorder FAILED: $e');
+  //     return;
+  //   }
 
-    // debugPrint('[_startAudio] Recorder started, isRecording=${_recorder.isRecording}');
-    debugPrint('[_startAudio] Recorder started, isRecording=${_audioRecorder.isRecording}');
+  //   // debugPrint('[_startAudio] Recorder started, isRecording=${_recorder.isRecording}');
+  //   debugPrint('[_startAudio] Recorder started, isRecording=${_audioRecorder.isRecording}');
 
-    setState(() {
-      _isRecording = true;
-    });
-  }
+  //   setState(() {
+  //     _isRecording = true;
+  //   });
+  // }
 
   Future<void> _onStartMonitoringPressed() async {
     debugPrint('[_onStartMonitoringPressed] Start pressed');
@@ -234,7 +234,7 @@ class _HomeContentState extends State<_HomeContent> {
       return;
     }
 
-    await _startAudio();
+    // await _startAudio();
 
     await _startCameraIfNeeded();
 
@@ -312,35 +312,35 @@ class _HomeContentState extends State<_HomeContent> {
     //   } catch (e) {
     //     debugPrint('[_onStopMonitoringPressed] stopRecorder FAILED: $e');
     //   }
-    if (_isRecording) { 
-      debugPrint('[_onStopMonitoringPressed] Recorder is recording, stopping now...');
-      try {
-        // CHANGED: This is the new way to stop
-        final recordedPath = await _audioRecorder.stop();
+    // if (_isRecording) { 
+    //   debugPrint('[_onStopMonitoringPressed] Recorder is recording, stopping now...');
+    //   try {
+    //     // CHANGED: This is the new way to stop
+    //     final recordedPath = await _audioRecorder.stop();
         
-        debugPrint(
-          '[_onStopMonitoringPressed] Recorder stopped, path: $recordedPath',
-        );
+    //     debugPrint(
+    //       '[_onStopMonitoringPressed] Recorder stopped, path: $recordedPath',
+    //     );
 
-        if (recordedPath != null) {
-          final f = File(recordedPath);
-          final len = await f.length();
-          debugPrint(
-            '[_onStopMonitoringPressed] File length: $len bytes (44 = header only)',
-          );
-        }
-      } catch (e) {
-        debugPrint('[_onStopMonitoringPressed] stop (record) FAILED: $e');
-      }
+    //     if (recordedPath != null) {
+    //       final f = File(recordedPath);
+    //       final len = await f.length();
+    //       debugPrint(
+    //         '[_onStopMonitoringPressed] File length: $len bytes (44 = header only)',
+    //       );
+    //     }
+    //   } catch (e) {
+    //     debugPrint('[_onStopMonitoringPressed] stop (record) FAILED: $e');
+    //   }
 
-      setState(() {
-        _isRecording = false;
-      });
-    } else {
-      debugPrint(
-        '[_onStopMonitoringPressed] Recorder is NOT in recording state, skipping stopRecorder',
-      );
-    }
+    //   setState(() {
+    //     _isRecording = false;
+    //   });
+    // } else {
+    //   debugPrint(
+    //     '[_onStopMonitoringPressed] Recorder is NOT in recording state, skipping stopRecorder',
+    //   );
+    // }
 
     if (!mounted) return;
 
@@ -358,7 +358,7 @@ class _HomeContentState extends State<_HomeContent> {
     debugPrint('[_HomeContentState.dispose] Disposing');
     _cameraController?.dispose();
     // _recorder.closeRecorder();
-    _audioRecorder.dispose();
+    // _audioRecorder.dispose();
     super.dispose();
   }
 

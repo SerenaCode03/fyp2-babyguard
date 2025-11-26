@@ -1,16 +1,20 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';    
 
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart'
     as mlkit;
 
 import '../services/pose_classifier.dart';
 import '../services/expression_classifier.dart';
+import '../services/cry_classifier.dart';   
 
 class CameraPreviewPage extends StatefulWidget {
   final CameraController controller;
@@ -29,6 +33,8 @@ class CameraPreviewPage extends StatefulWidget {
 class _CameraPreviewPageState extends State<CameraPreviewPage> {
   final PoseClassifier _poseClassifier = PoseClassifier();
   final ExpressionClassifier _expressionClassifier = ExpressionClassifier();
+  final CryClassifier _cryClassifier = CryClassifier();
+  final AudioRecorder _recorder = AudioRecorder();
 
   late final mlkit.FaceDetector _mlkitFaceDetector;
 
@@ -37,9 +43,17 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
   CameraImage? _latestImage;
   Timer? _poseTimer;
+  Timer? _cryTimer;
 
   PoseResult? _lastPoseResult;
   ExpressionResult? _lastExpressionResult;
+  CryResult? _lastCryResult;
+
+  // Optional: simple voting/cooldown to stabilize Asphyxia alerts
+  final List<bool> _asphyxiaRing = [];
+  static const int _M = 5;              // window size
+  static const int _N = 3;              // votes needed
+  DateTime _nextAllowedAlert = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -56,6 +70,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
       await _poseClassifier.loadModel();
       await _expressionClassifier.loadModel();
+      await _cryClassifier.load();
 
       _mlkitFaceDetector = mlkit.FaceDetector(
         options: mlkit.FaceDetectorOptions(
@@ -67,8 +82,88 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
       _startImageStream();
       _startFaceGateLoop();   // wait for first face to start pipeline
+      _startCryLoop();
     });
   }
+
+  void _startCryLoop() {
+    _cryTimer?.cancel();
+    _cryTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      final wavPath = await _recordOneSecondWav();
+      if (wavPath == null) return;
+
+      final res = await _cryClassifier.classifyFromWavFile(wavPath);
+      try { await File(wavPath).delete(); } catch (_) {}
+
+      if (!mounted || res == null) return;
+
+      setState(() {
+        _lastCryResult = res;
+      });
+
+      _updateAsphyxiaVotes(res); // optional smoothing/alerting
+    });
+  }
+
+  Future<String?> _recordOneSecondWav() async {
+    try {
+      // Ask mic permission if needed
+      final hasPerm = await _recorder.hasPermission();
+      if (!hasPerm) return null;
+
+      // Make a temp filename
+      final dir = await getTemporaryDirectory();
+      final path = '${dir.path}/cry_${DateTime.now().millisecondsSinceEpoch}.wav';
+
+      // Start 16 kHz mono PCM16 WAV
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+          numChannels: 1,
+          bitRate: 256000, // ignored for WAV; safe to leave
+        ),
+        path: path,
+      );
+
+      // Capture exactly ~1 second
+      await Future.delayed(const Duration(seconds: 1));
+
+      // Stop & commit the file
+      await _recorder.stop();
+
+      final f = File(path);
+      if (await f.exists() && (await f.length()) > 44) {
+        return path;
+      }
+    } catch (e) {
+      // swallow or log
+    }
+    return null;
+  }
+
+  void _updateAsphyxiaVotes(CryResult res) {
+    if (res.label == 'Silent') return;
+
+    // Favor recall for asphyxia; tune threshold after field logs
+    final probs = res.rawProbs;
+    final asphyxiaConf = (probs.isNotEmpty) ? probs[0] : (res.label == 'Asphyxia' ? res.confidence : 0.0);
+    final bool voteAsphyxia = asphyxiaConf >= 0.40;
+
+    _asphyxiaRing.add(voteAsphyxia);
+    if (_asphyxiaRing.length > _M) _asphyxiaRing.removeAt(0);
+
+    final votes = _asphyxiaRing.where((v) => v).length;
+    final now = DateTime.now();
+    if (votes >= _N && now.isAfter(_nextAllowedAlert)) {
+      // TODO: trigger your alert UI/notification here
+      // e.g., showDialog / SnackBar / push to Notifications page / vibrate
+      _nextAllowedAlert = now.add(const Duration(seconds: 30));
+      _asphyxiaRing.clear();
+    }
+  }
+
+
 
   // ---- Face gate loop: runs until we see a face once ----
   void _startFaceGateLoop() {
@@ -254,7 +349,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   // Helper to map standard Camera formats to MLKit Format Enum
   mlkit.InputImageFormat _mapFormat(dynamic format) {
     // Most Android devices use NV21 (YUV_420_888 in Flutter usually maps to this)
-    // iOS usually uses bgra8888
     switch (format) {
       case 35: // YUV_420_888 (Android)
       case 17: // NV21
@@ -282,12 +376,17 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   void dispose() {
     _poseTimer?.cancel();
 
+    _cryTimer?.cancel();
+    _recorder.cancel(); // ensures recorder is released
+    _cryClassifier.dispose();
+
     if (widget.controller.value.isStreamingImages) {
       widget.controller.stopImageStream();
     }
 
     _poseClassifier.dispose();
     _expressionClassifier.dispose();
+
     _mlkitFaceDetector.close();
 
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -382,6 +481,14 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
                           ? 'Expression: ${_lastExpressionResult!.label} '
                             '(${(_lastExpressionResult!.confidence * 100).toStringAsFixed(1)}%)'
                           : 'Expression: (no face)',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _lastCryResult != null
+                          ? 'Cry: ${_lastCryResult!.label} '
+                            '(${(_lastCryResult!.confidence * 100).toStringAsFixed(1)}%)'
+                          : 'Cry: --',
                       style: const TextStyle(color: Colors.white),
                     ),
                   ],
