@@ -68,6 +68,8 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     widget.initializeFuture.then((_) async {
       if (!mounted) return;
 
+      await _debugCheckInputDevices();
+
       await _poseClassifier.loadModel();
       await _expressionClassifier.loadModel();
       await _cryClassifier.load();
@@ -82,7 +84,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
       _startImageStream();
       _startFaceGateLoop();   // wait for first face to start pipeline
-      _startCryLoop();
+      // _startCryLoop();
     });
   }
 
@@ -92,7 +94,8 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       final wavPath = await _recordOneSecondWav();
       if (wavPath == null) return;
 
-      final res = await _cryClassifier.classifyFromWavFile(wavPath);
+      // final res = await _cryClassifier.classifyFromWavFile(wavPath);
+      final res = await _cryClassifier.classifyLongAudio(wavPath);
       try { await File(wavPath).delete(); } catch (_) {}
 
       if (!mounted || res == null) return;
@@ -107,39 +110,75 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
   Future<String?> _recordOneSecondWav() async {
     try {
-      // Ask mic permission if needed
-      final hasPerm = await _recorder.hasPermission();
-      if (!hasPerm) return null;
+      // 1. Check permissions
+      if (!await _recorder.hasPermission()) return null;
 
-      // Make a temp filename
+      // 2. Find the Back Microphone (ID: 6)
+      // We look through the list of available mics for the one with ID "6"
+      final devices = await _recorder.listInputDevices();
+      InputDevice? targetMic;
+      
+      try {
+        // Try to find the specific back mic you saw in the logs
+        targetMic = devices.firstWhere((d) => d.id == '6'); 
+        debugPrint("Selected Mic: ${targetMic.label} (ID: ${targetMic.id})");
+      } catch (e) {
+        // Safety fallback: If ID 6 isn't found, just use the first available one
+        if (devices.isNotEmpty) {
+           targetMic = devices.first;
+           debugPrint("Back mic (ID 6) not found, using default: ${targetMic.label}");
+        }
+      }
+
+      // 3. Create a temporary file path
       final dir = await getTemporaryDirectory();
       final path = '${dir.path}/cry_${DateTime.now().millisecondsSinceEpoch}.wav';
 
-      // Start 16 kHz mono PCM16 WAV
+      // 4. Start Recording
       await _recorder.start(
-        const RecordConfig(
+        RecordConfig(
           encoder: AudioEncoder.wav,
-          sampleRate: 16000,
+          sampleRate: 44100,
           numChannels: 1,
-          bitRate: 256000, // ignored for WAV; safe to leave
+          
+          // --- CONFIGURATION ---
+          device: targetMic,      // <--- USES THE MIC WE FOUND ABOVE
+          noiseSuppress: false,   // Disable noise cancellation (hears the baby better)
+          echoCancel: false,      // Disable echo cancellation
+          autoGain: true,         // Auto-boost volume if it's quiet
+          // --------------------
         ),
         path: path,
       );
 
-      // Capture exactly ~1 second
-      await Future.delayed(const Duration(seconds: 1));
+      // 5. Record for 1 second
+      await Future.delayed(const Duration(milliseconds: 5500));
 
-      // Stop & commit the file
+      // 6. Stop
       await _recorder.stop();
 
+      // 7. Verify file exists and is valid
       final f = File(path);
       if (await f.exists() && (await f.length()) > 44) {
         return path;
       }
     } catch (e) {
-      // swallow or log
+      debugPrint("Audio record error: $e");
     }
     return null;
+  }
+
+  // Paste this helper method inside your class
+  Future<void> _debugCheckInputDevices() async {
+    // We need to ensure we have permission before listing devices
+    if (!await _recorder.hasPermission()) return;
+
+    final devices = await _recorder.listInputDevices();
+    debugPrint("--- AVAILABLE MICROPHONES ---");
+    for (var device in devices) {
+      debugPrint("ID: ${device.id} | Label: ${device.label}");
+    }
+    debugPrint("-----------------------------");
   }
 
   void _updateAsphyxiaVotes(CryResult res) {
@@ -162,8 +201,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       _asphyxiaRing.clear();
     }
   }
-
-
 
   // ---- Face gate loop: runs until we see a face once ----
   void _startFaceGateLoop() {
@@ -260,6 +297,54 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       debugPrint('Main pipeline error: $e');
     } finally {
       _isProcessing = false;
+    }
+  }
+
+  Future<void> _runInjectionTest() async {
+    debugPrint("\n================================================");
+    debugPrint("STARTING FILE INJECTION TEST");
+    debugPrint("================================================");
+
+    try {
+      // 1. Load the WAV from assets
+      final byteData = await rootBundle.load('assets/pain_1s_4.wav');
+      
+      // 2. Write it to a temporary file (so the classifier can read it)
+      final dir = await getTemporaryDirectory();
+      final tempFile = File('${dir.path}/temp_injection_test.wav');
+      await tempFile.writeAsBytes(byteData.buffer.asUint8List());
+      
+      debugPrint("Loaded 'assets/test_cry.wav' (${byteData.lengthInBytes} bytes)");
+      debugPrint("Feeding to CryClassifier...");
+
+      // 3. Run the classifier
+      final result = await _cryClassifier.classifyLongAudio(tempFile.path);
+
+      // 4. Show Results
+      if (result != null) {
+        debugPrint("------------------------------------------------");
+        debugPrint("RESULT: ${result.label}");
+        debugPrint("Confidence: ${(result.confidence * 100).toStringAsFixed(1)}%");
+        debugPrint("All Probs: ${result.rawProbs}");
+        debugPrint("------------------------------------------------");
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'TEST RESULT: ${result.label} (${(result.confidence * 100).round()}%)',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              backgroundColor: result.label == 'Pain' ? Colors.red : Colors.green,
+              duration: const Duration(seconds: 10),
+            ),
+          );
+        }
+      } else {
+        debugPrint("Classifier returned null (File error?)");
+      }
+    } catch (e) {
+      debugPrint("INJECTION ERROR: $e");
     }
   }
 
@@ -371,7 +456,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   }
 
   // ---- UI + Lifecycle ----
-
   @override
   void dispose() {
     _poseTimer?.cancel();
@@ -516,6 +600,17 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
                 ),
               ),
             ),
+            Positioned(
+            top: 50,
+            right: 20,
+            child: FloatingActionButton.small(
+              backgroundColor: Colors.white,
+              child: const Icon(Icons.bug_report, color: Colors.black),
+              onPressed: () {
+                _runInjectionTest();
+              },
+            ),
+          ),
           ],
         ),
       ),

@@ -78,6 +78,15 @@ flutter:
     - assets/models/mobilenetv3_fp16.tflite
     - assets/models/resnet18_fp16.tflite
     - assets/models/pcm_to_rgb224_fp16.tflite
+    - assets/asphyxia_63.wav
+    - assets/asphyxia_64.wav
+    - assets/hunger_4.wav
+    - assets/hunger_5.wav
+    - assets/hunger_11.wav
+    - assets/normal_52h.wav
+    - assets/pain_1s_3.wav
+    - assets/pain_1s_4.wav
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
 
