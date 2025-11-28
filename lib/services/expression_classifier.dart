@@ -127,7 +127,7 @@ class ExpressionClassifier {
   final double distressedProb = probs[0];
   final double normalProb = probs[1];
 
-  final label = distressedProb >= 0.40 ? 'Distressed' : 'Normal';
+  final label = distressedProb >= 0.50 ? 'Distressed' : 'Normal';
   final confidence =
       label == 'Distressed' ? distressedProb : normalProb;
 

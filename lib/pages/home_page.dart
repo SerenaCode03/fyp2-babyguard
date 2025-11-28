@@ -12,10 +12,6 @@ import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fyp2_babyguard/pages/camera_preview_page.dart';
 
-// import 'package:path_provider/path_provider.dart';
-// import 'package:taudio/taudio.dart';
-// import 'package:record/record.dart';
-
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 

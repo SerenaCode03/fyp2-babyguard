@@ -306,40 +306,33 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     debugPrint("================================================");
 
     try {
-      // 1. Load the WAV from assets
+      // 1. Load WAV from assets
       final byteData = await rootBundle.load('assets/pain_1s_4.wav');
-      
-      // 2. Write it to a temporary file (so the classifier can read it)
+
+      // 2. Write to temp file
       final dir = await getTemporaryDirectory();
       final tempFile = File('${dir.path}/temp_injection_test.wav');
       await tempFile.writeAsBytes(byteData.buffer.asUint8List());
-      
-      debugPrint("Loaded 'assets/test_cry.wav' (${byteData.lengthInBytes} bytes)");
+
+      debugPrint("Loaded injection file (${byteData.lengthInBytes} bytes)");
       debugPrint("Feeding to CryClassifier...");
 
-      // 3. Run the classifier
+      // 3. Run classifier
       final result = await _cryClassifier.classifyLongAudio(tempFile.path);
 
-      // 4. Show Results
+      // 4. Update UI overlay only (no Snackbar)
+      if (!mounted) return;
+
       if (result != null) {
+        setState(() {
+          _lastCryResult = result;
+        });
+
         debugPrint("------------------------------------------------");
         debugPrint("RESULT: ${result.label}");
         debugPrint("Confidence: ${(result.confidence * 100).toStringAsFixed(1)}%");
         debugPrint("All Probs: ${result.rawProbs}");
         debugPrint("------------------------------------------------");
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'TEST RESULT: ${result.label} (${(result.confidence * 100).round()}%)',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              backgroundColor: result.label == 'Pain' ? Colors.red : Colors.green,
-              duration: const Duration(seconds: 10),
-            ),
-          );
-        }
       } else {
         debugPrint("Classifier returned null (File error?)");
       }
@@ -347,6 +340,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       debugPrint("INJECTION ERROR: $e");
     }
   }
+
 
   // ---- MLKit helpers: CameraImage -> InputImage ----
 

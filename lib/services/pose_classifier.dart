@@ -50,7 +50,6 @@ class PoseClassifier {
   }
 
   /// Classify pose from a CameraImage frame (full frame, no cropping here).
-  ///
   /// Later, for explainable AI, you can reuse the resized image inside this
   /// method for Grad-CAM or saving crops.
   Future<PoseResult> classifyFromCameraImage(CameraImage image) async {
