@@ -9,12 +9,12 @@ import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';    
 
-import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart'
-    as mlkit;
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart' as mlkit;
 
 import '../services/pose_classifier.dart';
 import '../services/expression_classifier.dart';
-import '../services/cry_classifier.dart';   
+import '../services/cry_classifier.dart';
+import '../services/risk_scoring.dart';   
 
 class CameraPreviewPage extends StatefulWidget {
   final CameraController controller;
@@ -48,6 +48,14 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   PoseResult? _lastPoseResult;
   ExpressionResult? _lastExpressionResult;
   CryResult? _lastCryResult;
+
+  RiskResult? _lastRiskResult;
+
+  DateTime? _poseTimestamp;
+  DateTime? _exprTimestamp;
+  DateTime? _cryTimestamp;
+
+  static const Duration _riskWindow = Duration(seconds: 10);
 
   // Optional: simple voting/cooldown to stabilize Asphyxia alerts
   final List<bool> _asphyxiaRing = [];
@@ -102,9 +110,11 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
       setState(() {
         _lastCryResult = res;
+        _cryTimestamp = DateTime.now();
       });
 
-      _updateAsphyxiaVotes(res); // optional smoothing/alerting
+      _updateAsphyxiaVotes(res);
+      _evaluateAndMaybeSendXAI();
     });
   }
 
@@ -291,8 +301,18 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
       setState(() {
         _lastPoseResult = poseResult;
-        _lastExpressionResult = expressionResult; // may be null if no face
+        _poseTimestamp = DateTime.now();
+
+        // Expression may be null if no face
+        _lastExpressionResult = expressionResult;
+        if (expressionResult != null) {
+          _exprTimestamp = DateTime.now();
+        }
       });
+
+      // After updating, try risk evaluation
+      _evaluateAndMaybeSendXAI();
+
     } catch (e) {
       debugPrint('Main pipeline error: $e');
     } finally {
@@ -327,6 +347,8 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         setState(() {
           _lastCryResult = result;
         });
+        _cryTimestamp = DateTime.now();
+        _evaluateAndMaybeSendXAI();
 
         debugPrint("------------------------------------------------");
         debugPrint("RESULT: ${result.label}");
@@ -338,6 +360,83 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       }
     } catch (e) {
       debugPrint("INJECTION ERROR: $e");
+    }
+  }
+
+  void _evaluateAndMaybeSendXAI() {
+    final now = DateTime.now();
+    debugPrint('[Risk] ENTER evaluateAndMaybeSendXAI at $now');
+
+    // --- 1) Decide which labels to use based on freshness ---
+    // Sleeping: default to Normal if no fresh pose
+    String sleepLabel = 'Normal';
+    if (_lastPoseResult != null &&
+        _poseTimestamp != null &&
+        now.difference(_poseTimestamp!) <= _riskWindow) {
+      sleepLabel = _lastPoseResult!.label;
+    }
+
+    // Expression: default to Normal
+    String exprLabel = 'Normal';
+    if (_lastExpressionResult != null &&
+        _exprTimestamp != null &&
+        now.difference(_exprTimestamp!) <= _riskWindow) {
+      exprLabel = _lastExpressionResult!.label;
+    }
+
+    // Cry: default to Silent
+    String cryLabel = 'Silent';
+    if (_lastCryResult != null &&
+        _cryTimestamp != null &&
+        now.difference(_cryTimestamp!) <= _riskWindow) {
+      cryLabel = _lastCryResult!.label;
+    }
+
+    debugPrint('[Risk] Using labels -> '
+        'sleep=$sleepLabel, expr=$exprLabel, cry=$cryLabel');
+
+    // If literally everything is baseline, you can skip
+    if (sleepLabel == 'Normal' &&
+        exprLabel == 'Normal' &&
+        cryLabel == 'Silent') {
+      debugPrint('[Risk] All baseline (Normal/Normal/Silent), skipping.');
+      return;
+    }
+
+    // --- 2) Evaluate risk ---
+    final risk = evaluateRisk(
+      sleeping: Pred(sleepLabel),
+      expression: Pred(exprLabel),
+      cry: Pred(cryLabel),
+    );
+
+    setState(() {
+      _lastRiskResult = risk;
+    });
+
+    debugPrint(
+      '[Risk] RESULT -> total=${risk.totalScore} '
+      'level=${risk.riskLevel} '
+      'action=${risk.action} '
+      'sendToCloud=${risk.shouldSendToCloud}',
+    );
+
+    // If you only want to *act* when totalScore > 0:
+    if (risk.totalScore <= 0) {
+      debugPrint('[Risk] totalScore <= 0, no further action.');
+      return;
+    }
+
+    // --- 3) Local alert logic example ---
+    if (risk.riskLevel == 'High') {
+      debugPrint('[Risk] HIGH risk detected! (should alert user)');
+      // TODO: show dialog / notification / vibration here.
+    }
+
+    // --- 4) XAI trigger ---
+    if (risk.shouldSendToCloud) {
+      debugPrint('[Risk] shouldSendToCloud = true, call XAI backend here.');
+      // TODO: _sendXaiRequest();
     }
   }
 

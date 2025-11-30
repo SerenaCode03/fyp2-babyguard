@@ -21,28 +21,43 @@ class RiskResult {
 
 // Sleeping position scoring
 int _scoreSleeping(String label) {
-  final l = label.toLowerCase();
-  if (l.contains("normal")) return 0;
-  if (l.contains("abnormal")) return 2;
-  return 0; // fallback
+  switch (label) {
+    case 'Normal':
+      return 0;
+    case 'Abnormal':
+      return 2;
+    default:
+      return 0;
+  }
 }
 
 // Facial expression scoring
 int _scoreExpression(String label) {
-  final l = label.toLowerCase();
-  if (l.contains("normal")) return 0;
-  if (l.contains("distressed")) return 2;
-  return 0;
+  switch (label) {
+    case 'Normal':
+      return 0;
+    case 'Distressed':
+      return 2;
+    default:
+      return 0;
+  }
 }
 
 // Cry type scoring
 int _scoreCry(String label) {
-  final l = label.toLowerCase();
-  if (l.contains("normal")) return 1;
-  if (l.contains("hungry")) return 1;
-  if (l.contains("pain")) return 3;
-  if (l.contains("asphyxia")) return 5;
-  return 0;
+  switch (label) {
+    case 'Normal':
+    case 'Hungry':
+      return 1;
+    case 'Pain':
+      return 3;
+    case 'Asphyxia':
+      return 5;
+    case 'Silent':
+      return 0;
+    default:
+      return 0;
+  }
 }
 
 //Total scoring + decision
