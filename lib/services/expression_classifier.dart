@@ -99,22 +99,27 @@ class ExpressionClassifier {
     ),
   );
 
-  for (int y = 0; y < inputSize; y++) {
-      for (int x = 0; x < inputSize; x++) {
-        final pixel = resized.getPixel(x, y);
-        
-        // img.Image v4 syntax
-        final r = pixel.r;
-        final g = pixel.g;
-        final b = pixel.b;
+  const meanR = 0.485;
+  const meanG = 0.456;
+  const meanB = 0.406;
 
-        // FORMULA: (value - 127.5) / 127.5
-        // This converts 0 -> -1.0 and 255 -> 1.0
-        input[0][y][x][0] = (r - 127.5) / 127.5;
-        input[0][y][x][1] = (g - 127.5) / 127.5;
-        input[0][y][x][2] = (b - 127.5) / 127.5;
-      }
+  const stdR = 0.229;
+  const stdG = 0.224;
+  const stdB = 0.225;
+
+  for (int y = 0; y < inputSize; y++) {
+    for (int x = 0; x < inputSize; x++) {
+      final pixel = resized.getPixel(x, y);
+
+      final r = pixel.r / 255.0;
+      final g = pixel.g / 255.0;
+      final b = pixel.b / 255.0;
+
+      input[0][y][x][0] = (r - meanR) / stdR;
+      input[0][y][x][1] = (g - meanG) / stdG;
+      input[0][y][x][2] = (b - meanB) / stdB;
     }
+  }
 
   // 8) Output
   final output = List.generate(1, (_) => List.filled(labels.length, 0.0));

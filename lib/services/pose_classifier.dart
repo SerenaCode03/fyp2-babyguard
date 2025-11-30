@@ -24,9 +24,6 @@ class PoseResult {
 class PoseClassifier {
   static const String modelPath = 'assets/models/efficientnet_b0_fp16.tflite';
 
-  // IMPORTANT: Ensure this order matches how you trained your model.
-  // Here we assume:
-  // index 0 -> Abnormal, index 1 -> Normal.
   static const List<String> labels = [
     'Abnormal',
     'Normal',
@@ -85,12 +82,25 @@ class PoseClassifier {
       ),
     );
 
+    const meanR = 0.485;
+    const meanG = 0.456;
+    const meanB = 0.406;
+
+    const stdR = 0.229;
+    const stdG = 0.224;
+    const stdB = 0.225;
+
     for (int y = 0; y < inputSize; y++) {
       for (int x = 0; x < inputSize; x++) {
         final pixel = resized.getPixel(x, y);
-        input[0][y][x][0] = pixel.r / 255.0;
-        input[0][y][x][1] = pixel.g / 255.0;
-        input[0][y][x][2] = pixel.b/ 255.0;
+
+        final r = pixel.r / 255.0;
+        final g = pixel.g / 255.0;
+        final b = pixel.b / 255.0;
+
+        input[0][y][x][0] = (r - meanR) / stdR;
+        input[0][y][x][1] = (g - meanG) / stdG;
+        input[0][y][x][2] = (b - meanB) / stdB;
       }
     }
 
@@ -129,7 +139,6 @@ class PoseClassifier {
   // You can implement saving the resized or cropped frame in here.
   void _saveCroppedForExplainableAI(img.Image resized) {
     // TODO: implement disk saving or buffer caching for Grad-CAM later.
-    // Left intentionally unimplemented as requested.
   }
 
   // YUV420 to RGB conversion, same as in your FaceDetector.
