@@ -1,9 +1,11 @@
 // lib/services/pose_classifier.dart
 import 'dart:math';
+import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 
 class PoseResult {
   final String label;          // "Abnormal" or "Normal"
@@ -65,10 +67,8 @@ class PoseClassifier {
       height: inputSize,
       interpolation: img.Interpolation.linear,
     );
-
-    // NOTE: This is where you can later hook "save cropped frame" for XAI.
-    // For now, we only leave a placeholder and do not actually save:
-    // _saveCroppedForExplainableAI(resized);
+    
+    _saveDebugPose(resized);
 
     // 3) Build input tensor [1, 224, 224, 3], float32 [0,1]
     final input = List.generate(
@@ -134,6 +134,29 @@ class PoseClassifier {
     debugPrint('PoseClassifier: $result');
     return result;
   }
+
+  Future<void> _saveDebugPose(img.Image resized) async {
+    final directory = await getExternalStorageDirectory();
+    if (directory == null) {
+      debugPrint("PoseClassifier: External storage unavailable");
+      return;
+    }
+
+    final folder = Directory('${directory.path}/pose_debug');
+
+    if (!(await folder.exists())) {
+      await folder.create(recursive: true);
+    }
+
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final filePath = '${folder.path}/pose_$timestamp.png';
+
+    final file = File(filePath);
+    await file.writeAsBytes(img.encodePng(resized));
+
+    debugPrint('PoseClassifier: Saved debug pose image → $filePath');
+  }
+
 
   // Placeholder for later explainable AI integration.
   // You can implement saving the resized or cropped frame in here.
