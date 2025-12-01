@@ -8,6 +8,8 @@ import 'package:fyp2_babyguard/utilities/color.dart';
 import 'package:fyp2_babyguard/pages/login_page.dart';
 import 'package:fyp2_babyguard/pages/landing_page.dart'; // add this
 
+import 'package:fyp2_babyguard/pages/xai_debug_page.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -43,6 +45,7 @@ class MyApp extends StatelessWidget {
         '/forgot': (context) => const ForgotPasswordPage(),
         '/home':    (context) => const HomePage(), 
       },
+      // home: const XaiDebugPage(),
     );
   }
 }

@@ -26,10 +26,7 @@ class PoseResult {
 class PoseClassifier {
   static const String modelPath = 'assets/models/efficientnet_b0_fp16.tflite';
 
-  static const List<String> labels = [
-    'Abnormal',
-    'Normal',
-  ];
+  static const List<String> labels = ['Abnormal', 'Normal'];
 
   Interpreter? _interpreter;
   bool get isLoaded => _interpreter != null;
@@ -155,13 +152,6 @@ class PoseClassifier {
     await file.writeAsBytes(img.encodePng(resized));
 
     debugPrint('PoseClassifier: Saved debug pose image → $filePath');
-  }
-
-
-  // Placeholder for later explainable AI integration.
-  // You can implement saving the resized or cropped frame in here.
-  void _saveCroppedForExplainableAI(img.Image resized) {
-    // TODO: implement disk saving or buffer caching for Grad-CAM later.
   }
 
   // YUV420 to RGB conversion, same as in your FaceDetector.

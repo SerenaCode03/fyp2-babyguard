@@ -1,20 +1,19 @@
+// pages/camera_preview_page.dart
 import 'dart:async';
-import 'dart:typed_data';
-import 'dart:ui';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:image/image.dart' as img;
 import 'package:record/record.dart';    
-
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart' as mlkit;
 
 import '../services/pose_classifier.dart';
 import '../services/expression_classifier.dart';
 import '../services/cry_classifier.dart';
 import '../services/risk_scoring.dart';   
+import '../services/xai_backend_service.dart';
 
 class CameraPreviewPage extends StatefulWidget {
   final CameraController controller;
@@ -35,6 +34,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   final ExpressionClassifier _expressionClassifier = ExpressionClassifier();
   final CryClassifier _cryClassifier = CryClassifier();
   final AudioRecorder _recorder = AudioRecorder();
+  final XaiBackendService _xaiService = XaiBackendService();
 
   late final mlkit.FaceDetector _mlkitFaceDetector;
 
@@ -54,10 +54,14 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   DateTime? _poseTimestamp;
   DateTime? _exprTimestamp;
   DateTime? _cryTimestamp;
+  File? _lastFrameFile;
+  Rect? _lastExprFaceRect;
+
+  XaiResult? _lastPoseXai;
+  XaiResult? _lastExpressionXai;
+  XaiResult? _lastCryXai;
 
   static const Duration _riskWindow = Duration(seconds: 10);
-
-  // Optional: simple voting/cooldown to stabilize Asphyxia alerts
   final List<bool> _asphyxiaRing = [];
   static const int _M = 5;              // window size
   static const int _N = 3;              // votes needed
@@ -75,9 +79,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
     widget.initializeFuture.then((_) async {
       if (!mounted) return;
-
       await _debugCheckInputDevices();
-
       await _poseClassifier.loadModel();
       await _expressionClassifier.loadModel();
       await _cryClassifier.load();
@@ -122,9 +124,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     try {
       // 1. Check permissions
       if (!await _recorder.hasPermission()) return null;
-
-      // 2. Find the Back Microphone (ID: 6)
-      // We look through the list of available mics for the one with ID "6"
       final devices = await _recorder.listInputDevices();
       InputDevice? targetMic;
       
@@ -150,8 +149,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
           encoder: AudioEncoder.wav,
           sampleRate: 44100,
           numChannels: 1,
-          
-          // --- CONFIGURATION ---
           device: targetMic,      // <--- USES THE MIC WE FOUND ABOVE
           noiseSuppress: false,   // Disable noise cancellation (hears the baby better)
           echoCancel: false,      // Disable echo cancellation
@@ -205,8 +202,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     final votes = _asphyxiaRing.where((v) => v).length;
     final now = DateTime.now();
     if (votes >= _N && now.isAfter(_nextAllowedAlert)) {
-      // TODO: trigger your alert UI/notification here
-      // e.g., showDialog / SnackBar / push to Notifications page / vibrate
       _nextAllowedAlert = now.add(const Duration(seconds: 30));
       _asphyxiaRing.clear();
     }
@@ -273,9 +268,9 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     try {
       // 1) Pose classification (always)
       final poseResult = await _poseClassifier.classifyFromCameraImage(image);
-
       // 2) Facial expression classification ONLY if MLKit sees a face
       ExpressionResult? expressionResult;
+      Rect? faceRectForExpr; 
 
       try {
         final inputImage = _inputImageFromCameraImage(image);
@@ -284,6 +279,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         if (faces.isNotEmpty) {
           final face = faces.first;
           final Rect faceRect = face.boundingBox;
+          faceRectForExpr = faceRect;
 
           expressionResult =
               await _expressionClassifier.classifyFromCameraImage(
@@ -295,6 +291,13 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         }
       } catch (e) {
         debugPrint('MLKit face detection (pipeline) error: $e');
+      }
+
+      // 3) Cache this frame (and face rect) for possible XAI use
+      final frameFile = await _saveCameraImageToJpeg(image);
+      if (frameFile != null) {
+        _lastFrameFile = frameFile;
+        _lastExprFaceRect = faceRectForExpr;  // can be null if no face
       }
 
       if (!mounted) return;
@@ -309,10 +312,8 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
           _exprTimestamp = DateTime.now();
         }
       });
-
       // After updating, try risk evaluation
       _evaluateAndMaybeSendXAI();
-
     } catch (e) {
       debugPrint('Main pipeline error: $e');
     } finally {
@@ -320,10 +321,98 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     }
   }
 
+    Future<File?> _saveCameraImageToJpeg(CameraImage image) async {
+    try {
+      // Convert YUV420 to RGB using the image package
+      final img.Image rgbImage = _yuv420ToImage(image);
+
+      final jpgBytes = img.encodeJpg(rgbImage, quality: 90);
+
+      final dir = await getTemporaryDirectory();
+      final path =
+          '${dir.path}/xai_frame_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final file = File(path);
+      await file.writeAsBytes(jpgBytes);
+
+      return file;
+    } catch (e) {
+      debugPrint('[XAI] Error converting CameraImage to JPEG: $e');
+      return null;
+    }
+  }
+
+  // Basic YUV420 -> RGB conversion for CameraImage (Android)
+  img.Image _yuv420ToImage(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
+
+    final img.Image imgBuffer = img.Image(width: width, height: height);
+
+    final Plane planeY = image.planes[0];
+    final Plane planeU = image.planes[1];
+    final Plane planeV = image.planes[2];
+
+    final int strideY = planeY.bytesPerRow;
+    final int strideU = planeU.bytesPerRow;
+    final int strideV = planeV.bytesPerRow;
+
+    final bytesY = planeY.bytes;
+    final bytesU = planeU.bytes;
+    final bytesV = planeV.bytes;
+
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final int indexY = y * strideY + x;
+
+        final int uvRow = (y / 2).floor();
+        final int uvCol = (x / 2).floor();
+
+        final int indexU = uvRow * strideU + uvCol;
+        final int indexV = uvRow * strideV + uvCol;
+
+        final int Y = bytesY[indexY];
+        final int U = bytesU[indexU];
+        final int V = bytesV[indexV];
+
+        // Convert YUV to RGB (BT.601)
+        double yf = Y.toDouble();
+        double uf = U.toDouble() - 128.0;
+        double vf = V.toDouble() - 128.0;
+
+        int r = (yf + 1.402 * vf).round();
+        int g = (yf - 0.344136 * uf - 0.714136 * vf).round();
+        int b = (yf + 1.772 * uf).round();
+
+        r = r.clamp(0, 255);
+        g = g.clamp(0, 255);
+        b = b.clamp(0, 255);
+
+        imgBuffer.setPixelRgb(x, y, r, g, b);
+      }
+    }
+
+    return imgBuffer;
+  }
+
+
+  Future<void> _sendCryXai(String wavPath) async {
+    try {
+      final result = await _xaiService.predictCry(File(wavPath));
+      if (!mounted) return;
+      setState(() {
+        _lastCryXai = result;
+      });
+      debugPrint('[XAI] Cry label=${result.label}, '
+          'conf=${result.confidence}, explanation=${result.explanation}');
+    } catch (e) {
+      debugPrint('[XAI] Cry error: $e');
+    }
+  }
+
   Future<void> _runInjectionTest() async {
-    debugPrint("\n================================================");
     debugPrint("STARTING FILE INJECTION TEST");
-    debugPrint("================================================");
+
+    File? tempFile;
 
     try {
       // 1. Load WAV from assets
@@ -331,16 +420,15 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
       // 2. Write to temp file
       final dir = await getTemporaryDirectory();
-      final tempFile = File('${dir.path}/temp_injection_test.wav');
+      tempFile = File('${dir.path}/temp_injection_test.wav');
       await tempFile.writeAsBytes(byteData.buffer.asUint8List());
 
       debugPrint("Loaded injection file (${byteData.lengthInBytes} bytes)");
       debugPrint("Feeding to CryClassifier...");
 
-      // 3. Run classifier
+      // 3. Run LOCAL classifier
       final result = await _cryClassifier.classifyLongAudio(tempFile.path);
 
-      // 4. Update UI overlay only (no Snackbar)
       if (!mounted) return;
 
       if (result != null) {
@@ -348,27 +436,273 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
           _lastCryResult = result;
         });
         _cryTimestamp = DateTime.now();
-        _evaluateAndMaybeSendXAI();
+
+        // 4. Feed into risk scoring (pose + expr + cry)
+        final risk = _evaluateAndMaybeSendXAI();
 
         debugPrint("------------------------------------------------");
-        debugPrint("RESULT: ${result.label}");
-        debugPrint("Confidence: ${(result.confidence * 100).toStringAsFixed(1)}%");
+        debugPrint("LOCAL CRY RESULT: ${result.label}");
+        debugPrint(
+          "Confidence: ${(result.confidence * 100).toStringAsFixed(1)}%",
+        );
         debugPrint("All Probs: ${result.rawProbs}");
         debugPrint("------------------------------------------------");
+
+        // 5. Only call cry XAI backend if risk says shouldSendToCloud
+        if (risk != null && risk.shouldSendToCloud && tempFile != null) {
+          debugPrint(
+            "[XAI] Risk.shouldSendToCloud = true (from injection), calling cry XAI...",
+          );
+
+          XaiResult? cryXai;
+          try {
+            // tempFile is non-null here because of the check above
+            final wavFile = tempFile;
+
+            cryXai = await _xaiService.predictCry(wavFile);
+            if (!mounted) return;
+
+            setState(() {
+              _lastCryXai = cryXai;
+            });
+          } catch (e) {
+            debugPrint("[XAI] Cry injection error: $e");
+          }
+
+          // 6. Optional: show a dialog with cry explainability
+          if (cryXai != null && mounted) {
+            // Promote to non-null inside this block
+            final nonNullCryXai = cryXai;
+
+            debugPrint(
+              '[XAI] Cry label=${nonNullCryXai.label}, '
+              'conf=${nonNullCryXai.confidence}, '
+              'explanation=${nonNullCryXai.explanation}',
+            );
+
+            await showDialog(
+              context: context,
+              builder: (context) {
+                return AlertDialog(
+                  title: const Text('Cry Injection XAI'),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Local classifier:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          '${result.label} '
+                          '(${(result.confidence * 100).toStringAsFixed(1)}%)',
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Backend explainability:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          '${nonNullCryXai.label} '
+                          '(${(nonNullCryXai.confidence * 100).toStringAsFixed(1)}%)',
+                        ),
+                        const SizedBox(height: 4),
+                        Text(nonNullCryXai.explanation),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 180,
+                          child: Image.memory(nonNullCryXai.overlayImageBytes),
+                        ),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                );
+              },
+            );
+          }
+        } else {
+          debugPrint(
+            "[XAI] Risk is null or shouldSendToCloud = false; skipping cry XAI.",
+          );
+        }
       } else {
         debugPrint("Classifier returned null (File error?)");
       }
     } catch (e) {
       debugPrint("INJECTION ERROR: $e");
+    } finally {
+      // Clean up temp file
+      if (tempFile != null) {
+        try {
+          await tempFile.delete();
+        } catch (_) {}
+      }
     }
   }
 
-  void _evaluateAndMaybeSendXAI() {
+
+    Future<void> _sendXaiRequest() async {
+      debugPrint('[XAI] Sending cached frame to backend...');
+
+      try {
+        // 0) Make sure we actually have a cached frame
+        if (_lastFrameFile == null) {
+          debugPrint('[XAI] No cached frame available; skipping XAI.');
+          return;
+        }
+
+        final imageFile = _lastFrameFile!;
+
+        // 1) Pose XAI on cached FULL frame
+        final poseXai = await _xaiService.predictPose(imageFile);
+
+        // 2) Prepare expression XAI image using cached face rect (if any)
+        File? exprImageFile;
+        final faceRect = _lastExprFaceRect;
+
+        if (faceRect != null) {
+          try {
+            debugPrint(
+              '[XAI] Using cached face rect for expression: '
+              'left=${faceRect.left}, top=${faceRect.top}, '
+              'width=${faceRect.width}, height=${faceRect.height}',
+            );
+
+            final bytes = await imageFile.readAsBytes();
+            final original = img.decodeImage(bytes);
+
+            if (original != null) {
+              int x = faceRect.left.round();
+              int y = faceRect.top.round();
+              int w = faceRect.width.round();
+              int h = faceRect.height.round();
+
+              if (x < 0) x = 0;
+              if (y < 0) y = 0;
+              if (x + w > original.width) {
+                w = original.width - x;
+              }
+              if (y + h > original.height) {
+                h = original.height - y;
+              }
+
+              final cropped = img.copyCrop(
+                original,
+                x: x,
+                y: y,
+                width: w,
+                height: h,
+              );
+
+              final dir = await getTemporaryDirectory();
+              final facePath =
+                  '${dir.path}/xai_expr_face_${DateTime.now().millisecondsSinceEpoch}.jpg';
+              final faceFile = File(facePath);
+              await faceFile.writeAsBytes(img.encodeJpg(cropped));
+
+              exprImageFile = faceFile;
+            } else {
+              debugPrint('[XAI] Failed to decode cached frame for cropping.');
+            }
+          } catch (e) {
+            debugPrint('[XAI] Error while cropping cached face: $e');
+          }
+        } else {
+          debugPrint('[XAI] No cached face rect; expression XAI will use full frame.');
+        }
+
+        // 3) Expression XAI: prefer cropped face; fallback to full frame
+        XaiResult? exprXai;
+        try {
+          final fileForExpr = exprImageFile ?? imageFile;
+          exprXai = await _xaiService.predictExpression(fileForExpr);
+        } catch (e) {
+          debugPrint('[XAI] Expression call failed: $e');
+        }
+
+        if (!mounted) return;
+
+        setState(() {
+          _lastPoseXai = poseXai;
+          _lastExpressionXai = exprXai;
+        });
+
+        // 4) Show dialog (same as before)
+        await showDialog(
+          context: context,
+          builder: (context) {
+            return AlertDialog(
+              title: const Text('Explainability Snapshot'),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Pose (backend):',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      '${poseXai.label} '
+                      '(${(poseXai.confidence * 100).toStringAsFixed(1)}%)',
+                    ),
+                    const SizedBox(height: 4),
+                    Text(poseXai.explanation),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 180,
+                      child: Image.memory(poseXai.overlayImageBytes),
+                    ),
+                    const SizedBox(height: 16),
+
+                    if (exprXai != null) ...[
+                      const Text(
+                        'Expression (backend):',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        '${exprXai.label} '
+                        '(${(exprXai.confidence * 100).toStringAsFixed(1)}%)',
+                      ),
+                      const SizedBox(height: 4),
+                      Text(exprXai.explanation),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 180,
+                        child: Image.memory(exprXai.overlayImageBytes),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      } catch (e) {
+        debugPrint('[XAI] Error sending snapshot: $e');
+      } finally {
+        // No need to stop/start image stream here anymore,
+        // since we used the cached frame, not takePicture().
+      }
+  }
+
+
+  RiskResult? _evaluateAndMaybeSendXAI() {
     final now = DateTime.now();
     debugPrint('[Risk] ENTER evaluateAndMaybeSendXAI at $now');
 
     // --- 1) Decide which labels to use based on freshness ---
-    // Sleeping: default to Normal if no fresh pose
     String sleepLabel = 'Normal';
     if (_lastPoseResult != null &&
         _poseTimestamp != null &&
@@ -376,7 +710,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       sleepLabel = _lastPoseResult!.label;
     }
 
-    // Expression: default to Normal
     String exprLabel = 'Normal';
     if (_lastExpressionResult != null &&
         _exprTimestamp != null &&
@@ -384,7 +717,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       exprLabel = _lastExpressionResult!.label;
     }
 
-    // Cry: default to Silent
     String cryLabel = 'Silent';
     if (_lastCryResult != null &&
         _cryTimestamp != null &&
@@ -395,12 +727,12 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     debugPrint('[Risk] Using labels -> '
         'sleep=$sleepLabel, expr=$exprLabel, cry=$cryLabel');
 
-    // If literally everything is baseline, you can skip
+    // If literally everything is baseline, skip
     if (sleepLabel == 'Normal' &&
         exprLabel == 'Normal' &&
         cryLabel == 'Silent') {
       debugPrint('[Risk] All baseline (Normal/Normal/Silent), skipping.');
-      return;
+      return null;
     }
 
     // --- 2) Evaluate risk ---
@@ -421,28 +753,25 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       'sendToCloud=${risk.shouldSendToCloud}',
     );
 
-    // If you only want to *act* when totalScore > 0:
     if (risk.totalScore <= 0) {
       debugPrint('[Risk] totalScore <= 0, no further action.');
-      return;
+      return risk;
     }
 
-    // --- 3) Local alert logic example ---
     if (risk.riskLevel == 'High') {
       debugPrint('[Risk] HIGH risk detected! (should alert user)');
-      // TODO: show dialog / notification / vibration here.
+      // TODO: local alert UI/notification
     }
 
-    // --- 4) XAI trigger ---
     if (risk.shouldSendToCloud) {
       debugPrint('[Risk] shouldSendToCloud = true, call XAI backend here.');
-      // TODO: _sendXaiRequest();
+      _sendXaiRequest(); 
     }
+
+    return risk;
   }
 
-
   // ---- MLKit helpers: CameraImage -> InputImage ----
-
   mlkit.InputImage _inputImageFromCameraImage(CameraImage image) {
     final bytes = _concatenatePlanes(image.planes);
 
@@ -457,14 +786,9 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       deviceOrientation, 
       camera.lensDirection
     );
-    // Convert camera rotation to MLKit rotation
-    // final rotation = _mapRotation(camera.sensorOrientation);
 
     // Convert camera format to MLKit format
     final format = _mapFormat(image.format.raw);
-
-    // NEW: Use InputImageMetadata instead of InputImageData
-    // We use the bytesPerRow from the first plane (Y-plane)
     final inputImageMetadata = mlkit.InputImageMetadata(
       size: imageSize,
       rotation: rotation,

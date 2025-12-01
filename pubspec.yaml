@@ -41,6 +41,7 @@ dependencies:
   tflite_flutter: ^0.11.0
   image: ^4.5.0
   google_mlkit_face_detection: ^0.12.0
+  http: ^1.6.0
 
 
 
@@ -86,7 +87,7 @@ flutter:
     - assets/normal_52h.wav
     - assets/pain_1s_3.wav
     - assets/pain_1s_4.wav
-
+    - assets/prone_image.jpeg
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
 
