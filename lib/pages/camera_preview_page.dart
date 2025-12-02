@@ -14,6 +14,8 @@ import '../services/expression_classifier.dart';
 import '../services/cry_classifier.dart';
 import '../services/risk_scoring.dart';   
 import '../services/xai_backend_service.dart';
+import 'package:fyp2_babyguard/components/notification_card.dart';
+import 'package:fyp2_babyguard/services/notification_center.dart';
 
 class CameraPreviewPage extends StatefulWidget {
   final CameraController controller;
@@ -60,6 +62,10 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   XaiResult? _lastPoseXai;
   XaiResult? _lastExpressionXai;
   XaiResult? _lastCryXai;
+
+  String? _lastNotifiedSleepLabel;
+  String? _lastNotifiedExprLabel;
+  String? _lastNotifiedCryLabel;
 
   static const Duration _riskWindow = Duration(seconds: 10);
   final List<bool> _asphyxiaRing = [];
@@ -232,6 +238,17 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
           setState(() {
             _pipelineRunning = true;
           });
+
+          // Notice: Baby detected
+          NotificationCenter.instance.add(
+            NotificationItem(
+              kind: NoticeKind.notice,
+              title: 'Notice: Baby detected',
+              time: DateTime.now(),
+              icon: Icons.child_care_rounded,
+              tint: const Color(0xFF2ECC71),
+            ),
+          );
         }
       } catch (e) {
         debugPrint('MLKit gate error: $e');
@@ -546,155 +563,226 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     }
   }
 
+  void _pushNotificationsForLabels({
+    required String sleepLabel,
+    required String exprLabel,
+    required String cryLabel,
+  }) {
+    final now = DateTime.now();
 
-    Future<void> _sendXaiRequest() async {
-      debugPrint('[XAI] Sending cached frame to backend...');
+    // ---- Posture / pose ----
+    final bool sleepAbnormal =
+        sleepLabel == 'Abnormal' ||
+        sleepLabel == 'Prone' ||
+        sleepLabel == 'Side';
 
-      try {
-        // 0) Make sure we actually have a cached frame
-        if (_lastFrameFile == null) {
-          debugPrint('[XAI] No cached frame available; skipping XAI.');
-          return;
-        }
+    if (sleepAbnormal && sleepLabel != _lastNotifiedSleepLabel) {
+      NotificationCenter.instance.add(
+        NotificationItem(
+          kind: NoticeKind.alert,
+          title: 'Alert: Abnormal posture detected',
+          time: now,
+          icon: Icons.bed_rounded,
+          tint: const Color(0xFFF0AD00),
+        ),
+      );
+      _lastNotifiedSleepLabel = sleepLabel;
+    }
 
-        final imageFile = _lastFrameFile!;
+    // ---- Facial expression ----
+    final bool exprAbnormal =
+        exprLabel == 'Distressed' ||
+        exprLabel == 'Crying' ||
+        exprLabel == 'Uncomfortable';
 
-        // 1) Pose XAI on cached FULL frame
-        final poseXai = await _xaiService.predictPose(imageFile);
+    if (exprAbnormal && exprLabel != _lastNotifiedExprLabel) {
+      NotificationCenter.instance.add(
+        NotificationItem(
+          kind: NoticeKind.alert,
+          title: 'Alert: Distressed face detected',
+          time: now,
+          icon: Icons.sentiment_dissatisfied_rounded,
+          tint: const Color(0xFFF0AD00),
+        ),
+      );
+      _lastNotifiedExprLabel = exprLabel;
+    }
 
-        // 2) Prepare expression XAI image using cached face rect (if any)
-        File? exprImageFile;
-        final faceRect = _lastExprFaceRect;
+    // ---- Cry ----
+    final bool cryAbnormal = cryLabel != 'Silent' && cryLabel != 'Normal';
 
-        if (faceRect != null) {
-          try {
-            debugPrint(
-              '[XAI] Using cached face rect for expression: '
-              'left=${faceRect.left}, top=${faceRect.top}, '
-              'width=${faceRect.width}, height=${faceRect.height}',
+    if (cryAbnormal && cryLabel != _lastNotifiedCryLabel) {
+      final String title = (cryLabel == 'Asphyxia')
+          ? 'Alert: Asphyxia cry detected'
+          : 'Alert: $cryLabel cry detected';
+
+      NotificationCenter.instance.add(
+        NotificationItem(
+          kind: NoticeKind.alert,
+          title: title,
+          time: now,
+          icon: Icons.graphic_eq_rounded,
+          tint: const Color(0xFFF0AD00),
+        ),
+      );
+      _lastNotifiedCryLabel = cryLabel;
+    }
+
+    // Optional: if modality returns to baseline, reset so future abnormal
+    // can trigger a new notification again.
+    if (!sleepAbnormal) _lastNotifiedSleepLabel = null;
+    if (!exprAbnormal) _lastNotifiedExprLabel = null;
+    if (!cryAbnormal) _lastNotifiedCryLabel = null;
+  }
+
+  Future<void> _sendXaiRequest() async {
+    debugPrint('[XAI] Sending cached frame to backend...');
+
+    try {
+      // 0) Make sure we actually have a cached frame
+      if (_lastFrameFile == null) {
+        debugPrint('[XAI] No cached frame available; skipping XAI.');
+        return;
+      }
+
+      final imageFile = _lastFrameFile!;
+
+      // 1) Pose XAI on cached FULL frame
+      final poseXai = await _xaiService.predictPose(imageFile);
+
+      // 2) Prepare expression XAI image using cached face rect (if any)
+      File? exprImageFile;
+      final faceRect = _lastExprFaceRect;
+
+      if (faceRect != null) {
+        try {
+          debugPrint(
+            '[XAI] Using cached face rect for expression: '
+            'left=${faceRect.left}, top=${faceRect.top}, '
+            'width=${faceRect.width}, height=${faceRect.height}',
+          );
+
+          final bytes = await imageFile.readAsBytes();
+          final original = img.decodeImage(bytes);
+
+          if (original != null) {
+            int x = faceRect.left.round();
+            int y = faceRect.top.round();
+            int w = faceRect.width.round();
+            int h = faceRect.height.round();
+
+            if (x < 0) x = 0;
+            if (y < 0) y = 0;
+            if (x + w > original.width) {
+              w = original.width - x;
+            }
+            if (y + h > original.height) {
+              h = original.height - y;
+            }
+
+            final cropped = img.copyCrop(
+              original,
+              x: x,
+              y: y,
+              width: w,
+              height: h,
             );
 
-            final bytes = await imageFile.readAsBytes();
-            final original = img.decodeImage(bytes);
+            final dir = await getTemporaryDirectory();
+            final facePath =
+                '${dir.path}/xai_expr_face_${DateTime.now().millisecondsSinceEpoch}.jpg';
+            final faceFile = File(facePath);
+            await faceFile.writeAsBytes(img.encodeJpg(cropped));
 
-            if (original != null) {
-              int x = faceRect.left.round();
-              int y = faceRect.top.round();
-              int w = faceRect.width.round();
-              int h = faceRect.height.round();
-
-              if (x < 0) x = 0;
-              if (y < 0) y = 0;
-              if (x + w > original.width) {
-                w = original.width - x;
-              }
-              if (y + h > original.height) {
-                h = original.height - y;
-              }
-
-              final cropped = img.copyCrop(
-                original,
-                x: x,
-                y: y,
-                width: w,
-                height: h,
-              );
-
-              final dir = await getTemporaryDirectory();
-              final facePath =
-                  '${dir.path}/xai_expr_face_${DateTime.now().millisecondsSinceEpoch}.jpg';
-              final faceFile = File(facePath);
-              await faceFile.writeAsBytes(img.encodeJpg(cropped));
-
-              exprImageFile = faceFile;
-            } else {
-              debugPrint('[XAI] Failed to decode cached frame for cropping.');
-            }
-          } catch (e) {
-            debugPrint('[XAI] Error while cropping cached face: $e');
+            exprImageFile = faceFile;
+          } else {
+            debugPrint('[XAI] Failed to decode cached frame for cropping.');
           }
-        } else {
-          debugPrint('[XAI] No cached face rect; expression XAI will use full frame.');
-        }
-
-        // 3) Expression XAI: prefer cropped face; fallback to full frame
-        XaiResult? exprXai;
-        try {
-          final fileForExpr = exprImageFile ?? imageFile;
-          exprXai = await _xaiService.predictExpression(fileForExpr);
         } catch (e) {
-          debugPrint('[XAI] Expression call failed: $e');
+          debugPrint('[XAI] Error while cropping cached face: $e');
         }
+      } else {
+        debugPrint('[XAI] No cached face rect; expression XAI will use full frame.');
+      }
 
-        if (!mounted) return;
+      // 3) Expression XAI: prefer cropped face; fallback to full frame
+      XaiResult? exprXai;
+      try {
+        final fileForExpr = exprImageFile ?? imageFile;
+        exprXai = await _xaiService.predictExpression(fileForExpr);
+      } catch (e) {
+        debugPrint('[XAI] Expression call failed: $e');
+      }
 
-        setState(() {
-          _lastPoseXai = poseXai;
-          _lastExpressionXai = exprXai;
-        });
+      if (!mounted) return;
 
-        // 4) Show dialog (same as before)
-        await showDialog(
-          context: context,
-          builder: (context) {
-            return AlertDialog(
-              title: const Text('Explainability Snapshot'),
-              content: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+      setState(() {
+        _lastPoseXai = poseXai;
+        _lastExpressionXai = exprXai;
+      });
+
+      // 4) Show dialog (same as before)
+      await showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Explainability Snapshot'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Pose (backend):',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    '${poseXai.label} '
+                    '(${(poseXai.confidence * 100).toStringAsFixed(1)}%)',
+                  ),
+                  const SizedBox(height: 4),
+                  Text(poseXai.explanation),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 180,
+                    child: Image.memory(poseXai.overlayImageBytes),
+                  ),
+                  const SizedBox(height: 16),
+
+                  if (exprXai != null) ...[
                     const Text(
-                      'Pose (backend):',
+                      'Expression (backend):',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     Text(
-                      '${poseXai.label} '
-                      '(${(poseXai.confidence * 100).toStringAsFixed(1)}%)',
+                      '${exprXai.label} '
+                      '(${(exprXai.confidence * 100).toStringAsFixed(1)}%)',
                     ),
                     const SizedBox(height: 4),
-                    Text(poseXai.explanation),
+                    Text(exprXai.explanation),
                     const SizedBox(height: 8),
                     SizedBox(
                       height: 180,
-                      child: Image.memory(poseXai.overlayImageBytes),
+                      child: Image.memory(exprXai.overlayImageBytes),
                     ),
-                    const SizedBox(height: 16),
-
-                    if (exprXai != null) ...[
-                      const Text(
-                        'Expression (backend):',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        '${exprXai.label} '
-                        '(${(exprXai.confidence * 100).toStringAsFixed(1)}%)',
-                      ),
-                      const SizedBox(height: 4),
-                      Text(exprXai.explanation),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        height: 180,
-                        child: Image.memory(exprXai.overlayImageBytes),
-                      ),
-                    ],
                   ],
-                ),
+                ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Close'),
-                ),
-              ],
-            );
-          },
-        );
-      } catch (e) {
-        debugPrint('[XAI] Error sending snapshot: $e');
-      } finally {
-        // No need to stop/start image stream here anymore,
-        // since we used the cached frame, not takePicture().
-      }
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      debugPrint('[XAI] Error sending snapshot: $e');
+    } finally {
+      // No need to stop/start image stream here anymore,
+      // since we used the cached frame, not takePicture().
+    }
   }
 
 
@@ -734,6 +822,12 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       debugPrint('[Risk] All baseline (Normal/Normal/Silent), skipping.');
       return null;
     }
+
+    _pushNotificationsForLabels(
+      sleepLabel: sleepLabel,
+      exprLabel: exprLabel,
+      cryLabel: cryLabel,
+    );
 
     // --- 2) Evaluate risk ---
     final risk = evaluateRisk(

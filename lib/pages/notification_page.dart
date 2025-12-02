@@ -1,7 +1,9 @@
+//pages/notification_page.dart
 import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/components/header_bar.dart';
 import 'package:fyp2_babyguard/components/notification_card.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
+import 'package:fyp2_babyguard/services/notification_center.dart';
 
 class NotificationPage extends StatelessWidget {
   const NotificationPage({super.key});
@@ -10,60 +12,51 @@ class NotificationPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final now = DateTime.now();
 
-    // Sample data (swap with your real list)
-    final items = <NotificationItem>[
-      NotificationItem(
-        kind: NoticeKind.alert,
-        title: 'Alert: Asphyxia cry',
-        time: DateTime(now.year, now.month, now.day, 11, 40),
-        icon: Icons.graphic_eq_rounded,      // equalizer/wave
-        tint: const Color(0xFFF0AD00),
-      ),
-      NotificationItem(
-        kind: NoticeKind.alert,
-        title: 'Alert: Abnormal posture',
-        time: DateTime(now.year, now.month, now.day, 11, 40),
-        icon: Icons.bed_rounded,             // bed icon
-        tint: const Color(0xFFF0AD00),
-      ),
-      NotificationItem(
-        kind: NoticeKind.alert,
-        title: 'Alert: Distressed face',
-        time: DateTime(now.year, now.month, now.day, 11, 40),
-        icon: Icons.sentiment_dissatisfied_rounded,
-        tint: const Color(0xFFF0AD00),
-      ),
-      NotificationItem(
-        kind: NoticeKind.notice,
-        title: 'Notice: Baby detected',
-        time: DateTime(now.year, now.month, now.day, 11, 40),
-        icon: Icons.child_care_rounded,
-        tint: const Color(0xFF2ECC71),
-      ),
-    ];
+    return SafeArea( 
+      child: Column(
+        children: [
+          const HeaderBar(title: 'Notifications'),
 
-    return Column(
-      children: [
-        const HeaderBar(title: 'Notifications'),
-        Expanded(
-          child: Container(
-            color: const Color(0xFFE6EEFA), // light blue background like your mock
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              children: [
-                _DateHeader(date: now),
-                const SizedBox(height: 12),
-                ...items.map(
-                  (n) => Padding(
-                    padding: const EdgeInsets.only(bottom: 14),
-                    child: NotificationCard(item: n),
-                  ),
-                ),
-              ],
+          Expanded(
+            child: Container(
+              color: const Color(0xFFE6EEFA),
+
+              child: ValueListenableBuilder<List<NotificationItem>>(
+                valueListenable: NotificationCenter.instance.items,
+                builder: (context, items, _) {
+                  if (items.isEmpty) {
+                    return const Center(
+                      child: Text(
+                        'No notifications yet',
+                        style: TextStyle(color: black),
+                      ),
+                    );
+                  }
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(
+                      16,
+                      16,
+                      16,
+                      16, 
+                    ),
+                    children: [
+                      _DateHeader(date: now),
+                      const SizedBox(height: 12),
+
+                      ...items.map(
+                        (n) => Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: NotificationCard(item: n),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -91,3 +84,4 @@ class _DateHeader extends StatelessWidget {
     return 'TODAY $mm/$dd';
   }
 }
+

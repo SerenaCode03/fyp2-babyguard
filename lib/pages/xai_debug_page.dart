@@ -13,7 +13,7 @@ class XaiDebugPage extends StatefulWidget {
 
 class _XaiDebugPageState extends State<XaiDebugPage> {
   final _service = XaiBackendService(
-    baseUrl: 'https://4eae768fab73.ngrok-free.app', // make sure this matches backend
+    baseUrl: 'https://6ab9e9f5e842.ngrok-free.app', // make sure this matches backend
   );
 
   XaiResult? _result;

@@ -22,6 +22,8 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _index = 0;
 
+  static const double _navBarHeight = 72; // tweak to match your BottomNavBar
+
   final List<Widget> _pages = <Widget>[
     const _HomeContent(),
     const ReportPage(),
@@ -39,12 +41,19 @@ class _HomePageState extends State<HomePage> {
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
+          // CONTENT AREA
           SafeArea(
-            child: IndexedStack(
-              index: _index,
-              children: _pages,
+            child: Padding(
+              // 👇 reserve space for: 40 (your bottom offset) + nav bar height
+              padding: EdgeInsets.only(bottom: 40 + _navBarHeight),
+              child: IndexedStack(
+                index: _index,
+                children: _pages,
+              ),
             ),
           ),
+
+          // FLOATING NAV BAR
           Positioned(
             left: 12,
             right: 12,
@@ -59,6 +68,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
+
 
 const _kSectionStyle = TextStyle(
   color: black,
@@ -75,11 +85,6 @@ class _HomeContent extends StatefulWidget {
 
 class _HomeContentState extends State<_HomeContent> {
   bool _monitoringActive = false;
-  // final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
-  // final AudioRecorder _audioRecorder = AudioRecorder();
-  // bool _isRecording = false;
-  // bool _recorderReady = false;
-
   CameraController? _cameraController;
   Future<void>? _initializeControllerFuture;
 
@@ -87,20 +92,7 @@ class _HomeContentState extends State<_HomeContent> {
   void initState() {
     super.initState();
     debugPrint('[_HomeContentState.initState] called');
-    // _initRecorder();
   }
-
-  // Future<void> _initRecorder() async {
-  //   try {
-  //     await _recorder.openRecorder();
-  //     final wavSupported = await _recorder.isEncoderSupported(Codec.pcm16);
-  //     _recorderReady = true;
-  //     debugPrint('[_initRecorder] Recorder opened. WAV supported: $wavSupported');
-  //   } catch (e) {
-  //     _recorderReady = false;
-  //     debugPrint('[_initRecorder] openRecorder FAILED: $e');
-  //   }
-  // }
 
   Future<bool> _requestCameraAndMic() async {
     final cameraStatus = await Permission.camera.request();
@@ -150,78 +142,6 @@ class _HomeContentState extends State<_HomeContent> {
     _initializeControllerFuture = _cameraController!.initialize();
   }
 
-  // Future<void> _startAudio() async {
-  //   debugPrint('[_startAudio] Called');
-
-    // if (!_recorderReady) {
-    //   debugPrint('[_startAudio] Recorder not ready, trying to init again...');
-    //   await _initRecorder();
-    //   if (!_recorderReady) {
-    //     debugPrint('[_startAudio] Recorder still not ready, aborting');
-    //     return;
-    //   }
-    // }
-
-    // if (!_recorder.isStopped) {
-    //   debugPrint('[_startAudio] Recorder is not in stopped state; aborting startRecorder.');
-    //   return;
-    // }
-    // if (_isRecording) {
-    //   debugPrint('[_startAudio] Already recording, aborting.');
-    //   return;
-    // }
-
-    // final directory = await getApplicationDocumentsDirectory();
-    // final publicDirectory = await getExternalStorageDirectory();
-    // final filePath =
-    //     '${directory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.aac'; // <-- CHANGE EXTENSION
-    // final filePath =
-    // '${directory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav';
-  //   if (publicDirectory == null) {
-  //       debugPrint('[_startAudio] ERROR: Public storage directory is null. Check permissions and device storage.');
-  //       // Optionally show a user-facing error message here
-  //       return; // Halt execution if the public directory isn't available
-  //   }
-
-  //   final filePath ='${publicDirectory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav';
-
-  //   debugPrint('[_startAudio] Will record WAV to: $filePath');
-
-  //   try {
-  //     // await _recorder.startRecorder(
-  //     //   toFile: filePath,
-  //     //   // codec: Codec.aacADTS,
-  //     //   codec: Codec.pcm16WAV,
-  //     //   sampleRate: 16000,
-  //     //   numChannels: 1,
-  //     //   // audioSource: AudioSource.microphone,
-  //     //   audioSource: AudioSource.unprocessed,
-  //     // );
-  //     await _audioRecorder.start(
-  //       const RecordConfig(
-  //         encoder: AudioEncoder.wav, // This is your pcm16WAV
-  //         sampleRate: 16000,
-  //         numChannels: 1,
-  //         // Note: 'record' does not have an 'audioSource' property.
-  //         // It typically uses the default unprocessed input,
-  //         // which is exactly what we want to test.
-  //       ),
-  //       path: filePath,
-  //     );
-
-  //   } catch (e) {
-  //     debugPrint('[_startAudio] startRecorder FAILED: $e');
-  //     return;
-  //   }
-
-  //   // debugPrint('[_startAudio] Recorder started, isRecording=${_recorder.isRecording}');
-  //   debugPrint('[_startAudio] Recorder started, isRecording=${_audioRecorder.isRecording}');
-
-  //   setState(() {
-  //     _isRecording = true;
-  //   });
-  // }
-
   Future<void> _onStartMonitoringPressed() async {
     debugPrint('[_onStartMonitoringPressed] Start pressed');
     final granted = await _requestCameraAndMic();
@@ -229,8 +149,6 @@ class _HomeContentState extends State<_HomeContent> {
       debugPrint('[_onStartMonitoringPressed] Permissions not granted or widget not mounted');
       return;
     }
-
-    // await _startAudio();
 
     await _startCameraIfNeeded();
 
@@ -289,54 +207,6 @@ class _HomeContentState extends State<_HomeContent> {
       _cameraController = null;
       _initializeControllerFuture = null;
     }
-
-    // if (_recorder.isRecording) {
-    //   debugPrint('[_onStopMonitoringPressed] Recorder is recording, stopping now...');
-    //   try {
-    //     final recordedPath = await _recorder.stopRecorder();
-    //     debugPrint(
-    //       '[_onStopMonitoringPressed] Recorder stopped, path: $recordedPath',
-    //     );
-
-    //     if (recordedPath != null) {
-    //       final f = File(recordedPath);
-    //       final len = await f.length();
-    //       debugPrint(
-    //         '[_onStopMonitoringPressed] File length: $len bytes (44 = header only)',
-    //       );
-    //     }
-    //   } catch (e) {
-    //     debugPrint('[_onStopMonitoringPressed] stopRecorder FAILED: $e');
-    //   }
-    // if (_isRecording) { 
-    //   debugPrint('[_onStopMonitoringPressed] Recorder is recording, stopping now...');
-    //   try {
-    //     // CHANGED: This is the new way to stop
-    //     final recordedPath = await _audioRecorder.stop();
-        
-    //     debugPrint(
-    //       '[_onStopMonitoringPressed] Recorder stopped, path: $recordedPath',
-    //     );
-
-    //     if (recordedPath != null) {
-    //       final f = File(recordedPath);
-    //       final len = await f.length();
-    //       debugPrint(
-    //         '[_onStopMonitoringPressed] File length: $len bytes (44 = header only)',
-    //       );
-    //     }
-    //   } catch (e) {
-    //     debugPrint('[_onStopMonitoringPressed] stop (record) FAILED: $e');
-    //   }
-
-    //   setState(() {
-    //     _isRecording = false;
-    //   });
-    // } else {
-    //   debugPrint(
-    //     '[_onStopMonitoringPressed] Recorder is NOT in recording state, skipping stopRecorder',
-    //   );
-    // }
 
     if (!mounted) return;
 
