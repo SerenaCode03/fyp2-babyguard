@@ -1,91 +1,163 @@
+// pages/report_page.dart
 import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/components/alert_card.dart';
 import 'package:fyp2_babyguard/components/header_bar.dart';
 import 'package:fyp2_babyguard/pages/report_details_page.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
 import 'package:fyp2_babyguard/components/report_components.dart';
-
+import 'package:fyp2_babyguard/services/report_center.dart';
 
 class ReportPage extends StatelessWidget {
   const ReportPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final today = DateTime.now();
-
-    final items = <AlertItem>[
-      AlertItem(
-        level: AlertLevel.high,
-        title: 'High Risk Alert',
-        time: DateTime(today.year, today.month, today.day, 11, 40),
-        onTap: () {
-          // TODO: navigate to alert details
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const ReportDetailsPage(
-                heroImage: AssetImage('assets/images/baby_preview.jpg'),
-                timestamp: '11:40 AM',
-                alertTitle: 'High Risk Alert',
-                alertBody: 'Baby detected in prone position. Asphyxia cry is detected. Take action immediately!',
-                riskLevel: 'HIGH',
-                insights: [
-                  InsightItem(
-                    image: AssetImage('assets/images/gradcam1.png'),
-                    title: 'Distressed face',
-                    body: 'The model detected distress, focusing on the lower face and mouth, where discomfort cues typically appear.',
-                  ),
-                  InsightItem(
-                    image: AssetImage('assets/images/gradcam1.png'),
-                    title: 'Distressed face',
-                    body: 'The model detected distress, focusing on the lower face and mouth, where discomfort cues typically appear.',
-                  ),
-                ],
-                metrics: {
-                  'Distressed face': 0.90,
-                  'Abnormal Pose': 0.94,
-                  'Asphyxia cry': 0.80,
-                },
-                combinedRisk: 'HIGH',
-              ),
-            ),
-);
-
-        },
-      ),
-      AlertItem(
-        level: AlertLevel.moderate,
-        title: 'Moderate Risk Alert',
-        time: DateTime(today.year, today.month, today.day, 11, 40),
-      ),
-      AlertItem(
-        level: AlertLevel.low,
-        title: 'Low Risk Alert',
-        time: DateTime(today.year, today.month, today.day, 11, 40),
-      ),
-    ];
-
-    // Match SettingsPage structure: HeaderBar + Expanded scrollable content
     return Column(
       children: [
         const HeaderBar(title: 'Report'),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            children: [
-              _DateHeader(date: today),
-              const SizedBox(height: 12),
-              ...items.map(
-                (a) => Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: AlertCard(alert: a),
-                ),
-              ),
-            ],
+          child: ValueListenableBuilder<List<AlertSnapshot>>(
+            valueListenable: ReportCenter.instance.alerts,
+            builder: (context, alerts, _) {
+              if (alerts.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'No risk alerts recorded yet.',
+                    style: TextStyle(
+                      color: black,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                );
+              }
+
+              final today = DateTime.now();
+
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                children: [
+                  _DateHeader(date: today),
+                  const SizedBox(height: 12),
+                  ...alerts.map(
+                    (snap) => Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: AlertCard(
+                        alert: AlertItem(
+                          level: _mapAlertLevel(snap.riskLevel),
+                          title: _titleForRiskLevel(snap.riskLevel),
+                          time: snap.time,
+                          onTap: () => _openDetails(context, snap),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ],
     );
+  }
+
+  static AlertLevel _mapAlertLevel(String riskLevel) {
+    switch (riskLevel.toUpperCase()) {
+      case 'HIGH':
+        return AlertLevel.high;
+      case 'MODERATE':
+        return AlertLevel.moderate;
+      case 'LOW':
+      default:
+        return AlertLevel.low;
+    }
+  }
+
+  static String _titleForRiskLevel(String riskLevel) {
+    switch (riskLevel.toUpperCase()) {
+      case 'HIGH':
+        return 'High Risk Alert';
+      case 'MODERATE':
+        return 'Moderate Risk Alert';
+      case 'LOW':
+      default:
+        return 'Low Risk Alert';
+    }
+  }
+
+  void _openDetails(BuildContext context, AlertSnapshot snap) {
+    final insights = <InsightItem>[];
+
+    // Pose insight (always)
+    insights.add(
+      InsightItem(
+        image: MemoryImage(snap.poseXai.overlayImageBytes),
+        title: 'Sleeping pose insight',
+        body: snap.poseXai.explanation,
+      ),
+    );
+
+    // Expression insight (optional)
+    if (snap.expressionXai != null) {
+      insights.add(
+        InsightItem(
+          image: MemoryImage(snap.expressionXai!.overlayImageBytes),
+          title: 'Facial expression insight',
+          body: snap.expressionXai!.explanation,
+        ),
+      );
+    }
+
+    // Cry insight (optional)
+    if (snap.cryXai != null) {
+      insights.add(
+        InsightItem(
+          image: MemoryImage(snap.cryXai!.overlayImageBytes),
+          title: 'Cry pattern insight',
+          body: snap.cryXai!.explanation,
+        ),
+      );
+    }
+
+    final metrics = <String, double>{};
+
+    metrics['Pose: ${snap.poseLabel}'] = snap.poseXai.confidence;
+
+    if (snap.expressionXai != null) {
+      metrics['Expression: ${snap.expressionLabel}'] =
+          snap.expressionXai!.confidence;
+    }
+
+    if (snap.cryXai != null) {
+      metrics['Cry: ${snap.cryLabel}'] = snap.cryXai!.confidence;
+    }
+
+
+    final ts = _formatTime(snap.time);
+    final riskUpper = snap.riskLevel.toUpperCase();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReportDetailsPage(
+          heroImage: FileImage(snap.originalFrameFile),
+          timestamp: ts,
+          alertTitle: _titleForRiskLevel(riskUpper),
+          alertBody: snap.summary,
+          riskLevel: riskUpper,
+          insights: insights,
+          metrics: metrics,
+          combinedRisk: riskUpper,
+        ),
+      ),
+    );
+  }
+
+  String _formatTime(DateTime dt) {
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final m = dt.minute.toString().padLeft(2, '0');
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$h:$m $ampm';
   }
 }
 
@@ -95,8 +167,10 @@ class _DateHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mm = date.month.toString().padLeft(2, '0');
+    final dd = date.day.toString().padLeft(2, '0');
     return Text(
-      _formatLabel(date),
+      'TODAY $mm/$dd',
       style: const TextStyle(
         color: black,
         fontSize: 14,
@@ -104,11 +178,5 @@ class _DateHeader extends StatelessWidget {
         letterSpacing: 0.2,
       ),
     );
-  }
-
-  String _formatLabel(DateTime d) {
-    final mm = d.month.toString().padLeft(2, '0');
-    final dd = d.day.toString().padLeft(2, '0');
-    return 'TODAY $mm/$dd';
   }
 }

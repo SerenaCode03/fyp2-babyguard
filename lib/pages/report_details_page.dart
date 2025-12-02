@@ -11,7 +11,7 @@ class ReportDetailsPage extends StatelessWidget {
     required this.timestamp,
     required this.alertTitle,
     required this.alertBody,
-    required this.riskLevel,
+    required this.riskLevel,   // "HIGH" | "MEDIUM" | "LOW"
     required this.insights,
     required this.metrics,
     required this.combinedRisk,
@@ -21,7 +21,7 @@ class ReportDetailsPage extends StatelessWidget {
   final String timestamp;
   final String alertTitle;
   final String alertBody;
-  final String riskLevel; // "HIGH" | "MEDIUM" | "LOW"
+  final String riskLevel;
   final List<InsightItem> insights;
   final Map<String, double> metrics;
   final String combinedRisk;
@@ -30,7 +30,7 @@ class ReportDetailsPage extends StatelessWidget {
     switch (level.toUpperCase()) {
       case 'HIGH':
         return const Color(0xFFE84D3C);
-      case 'MEDIUM':
+      case 'MODERATE':
         return const Color(0xFFF4A261);
       case 'LOW':
         return const Color(0xFF2A9D8F);
@@ -41,12 +41,18 @@ class ReportDetailsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final riskColor = _riskColor(riskLevel);
+
     return Scaffold(
       backgroundColor: const Color(0xFFEAF1FF),
       appBar: HeaderBar(
         title: 'Report',
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: black),
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            size: 20,
+            color: black,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -55,50 +61,66 @@ class ReportDetailsPage extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Top hero image with play icon
             ClipRRect(
               borderRadius: BorderRadius.circular(16),
               child: AspectRatio(
                 aspectRatio: 16 / 9,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image(image: heroImage, fit: BoxFit.cover, filterQuality: FilterQuality.high),
-                    Container(color: Colors.black12),
-                    const Center(child: Icon(Icons.play_circle_fill_rounded, size: 60, color: Colors.white)),
-                  ],
+                child: Image(
+                  image: heroImage,          // your snapshot from ReportCenter
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.high,
                 ),
               ),
             ),
+
             const SizedBox(height: 12),
 
+            // Alert summary card (matches mock: icon + title + body + time)
             AlertDetailCard(
               title: alertTitle,
               body: alertBody,
               timestamp: timestamp,
-              icon: const Icon(Icons.report_gmailerrorred_rounded, color: Colors.white, size: 22),
-              badgeColor: _riskColor(riskLevel),
+              icon: const Icon(
+                Icons.report_gmailerrorred_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+              badgeColor: riskColor,
             ),
 
             const SizedBox(height: 18),
             const SectionTitle('Explainable AI insights'),
 
-            ...insights.map((i) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: InsightCard(image: i.image, title: i.title, body: i.body),
-                )),
+            // One InsightCard per modality with Grad-CAM overlays
+            ...insights.map(
+              (i) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: InsightCard(
+                  image: i.image,
+                  title: i.title,
+                  body: i.body,
+                ),
+              ),
+            ),
 
             const SizedBox(height: 6),
             const SectionTitle('Risk Assessment Summary'),
 
+            // Bullet list "Confidence Value: Distressed face 90% ..."
             SummaryCard(metrics: metrics),
 
             const SizedBox(height: 14),
+            // Combined risk chip at bottom
             Row(
               children: [
                 Expanded(
                   child: TagCard(
                     label: 'Combined risk assessment',
-                    trailing: RiskTag(text: combinedRisk, color: _riskColor(combinedRisk)),
+                    trailing: RiskTag(
+                      text: combinedRisk,
+                      color: riskColor,
+                    ),
                   ),
                 ),
               ],

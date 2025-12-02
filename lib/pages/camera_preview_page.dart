@@ -16,6 +16,8 @@ import '../services/risk_scoring.dart';
 import '../services/xai_backend_service.dart';
 import 'package:fyp2_babyguard/components/notification_card.dart';
 import 'package:fyp2_babyguard/services/notification_center.dart';
+import 'package:fyp2_babyguard/services/report_center.dart';
+
 
 class CameraPreviewPage extends StatefulWidget {
   final CameraController controller;
@@ -67,6 +69,11 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   String? _lastNotifiedExprLabel;
   String? _lastNotifiedCryLabel;
 
+  String? _lastCloudSleepLabel;
+  String? _lastCloudExprLabel;
+  String? _lastCloudCryLabel;
+  String? _lastCloudRiskLevel;
+
   static const Duration _riskWindow = Duration(seconds: 10);
   final List<bool> _asphyxiaRing = [];
   static const int _M = 5;              // window size
@@ -104,27 +111,27 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     });
   }
 
-  void _startCryLoop() {
-    _cryTimer?.cancel();
-    _cryTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
-      final wavPath = await _recordOneSecondWav();
-      if (wavPath == null) return;
+  // void _startCryLoop() {
+  //   _cryTimer?.cancel();
+  //   _cryTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+  //     final wavPath = await _recordOneSecondWav();
+  //     if (wavPath == null) return;
 
-      // final res = await _cryClassifier.classifyFromWavFile(wavPath);
-      final res = await _cryClassifier.classifyLongAudio(wavPath);
-      try { await File(wavPath).delete(); } catch (_) {}
+  //     // final res = await _cryClassifier.classifyFromWavFile(wavPath);
+  //     final res = await _cryClassifier.classifyLongAudio(wavPath);
+  //     try { await File(wavPath).delete(); } catch (_) {}
 
-      if (!mounted || res == null) return;
+  //     if (!mounted || res == null) return;
 
-      setState(() {
-        _lastCryResult = res;
-        _cryTimestamp = DateTime.now();
-      });
+  //     setState(() {
+  //       _lastCryResult = res;
+  //       _cryTimestamp = DateTime.now();
+  //     });
 
-      _updateAsphyxiaVotes(res);
-      _evaluateAndMaybeSendXAI();
-    });
-  }
+  //     _updateAsphyxiaVotes(res);
+  //     _evaluateAndMaybeSendXAI();
+  //   });
+  // }
 
   Future<String?> _recordOneSecondWav() async {
     try {
@@ -445,111 +452,58 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
       // 3. Run LOCAL classifier
       final result = await _cryClassifier.classifyLongAudio(tempFile.path);
-
       if (!mounted) return;
 
-      if (result != null) {
-        setState(() {
-          _lastCryResult = result;
-        });
-        _cryTimestamp = DateTime.now();
-
-        // 4. Feed into risk scoring (pose + expr + cry)
-        final risk = _evaluateAndMaybeSendXAI();
-
-        debugPrint("------------------------------------------------");
-        debugPrint("LOCAL CRY RESULT: ${result.label}");
-        debugPrint(
-          "Confidence: ${(result.confidence * 100).toStringAsFixed(1)}%",
-        );
-        debugPrint("All Probs: ${result.rawProbs}");
-        debugPrint("------------------------------------------------");
-
-        // 5. Only call cry XAI backend if risk says shouldSendToCloud
-        if (risk != null && risk.shouldSendToCloud && tempFile != null) {
-          debugPrint(
-            "[XAI] Risk.shouldSendToCloud = true (from injection), calling cry XAI...",
-          );
-
-          XaiResult? cryXai;
-          try {
-            // tempFile is non-null here because of the check above
-            final wavFile = tempFile;
-
-            cryXai = await _xaiService.predictCry(wavFile);
-            if (!mounted) return;
-
-            setState(() {
-              _lastCryXai = cryXai;
-            });
-          } catch (e) {
-            debugPrint("[XAI] Cry injection error: $e");
-          }
-
-          // 6. Optional: show a dialog with cry explainability
-          if (cryXai != null && mounted) {
-            // Promote to non-null inside this block
-            final nonNullCryXai = cryXai;
-
-            debugPrint(
-              '[XAI] Cry label=${nonNullCryXai.label}, '
-              'conf=${nonNullCryXai.confidence}, '
-              'explanation=${nonNullCryXai.explanation}',
-            );
-
-            await showDialog(
-              context: context,
-              builder: (context) {
-                return AlertDialog(
-                  title: const Text('Cry Injection XAI'),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Local classifier:',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          '${result.label} '
-                          '(${(result.confidence * 100).toStringAsFixed(1)}%)',
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Backend explainability:',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          '${nonNullCryXai.label} '
-                          '(${(nonNullCryXai.confidence * 100).toStringAsFixed(1)}%)',
-                        ),
-                        const SizedBox(height: 4),
-                        Text(nonNullCryXai.explanation),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          height: 180,
-                          child: Image.memory(nonNullCryXai.overlayImageBytes),
-                        ),
-                      ],
-                    ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Close'),
-                    ),
-                  ],
-                );
-              },
-            );
-          }
-        } else {
-          debugPrint(
-            "[XAI] Risk is null or shouldSendToCloud = false; skipping cry XAI.",
-          );
-        }
-      } else {
+      if (result == null) {
         debugPrint("Classifier returned null (File error?)");
+        return;
+      }
+
+      setState(() {
+        _lastCryResult = result;
+        _cryTimestamp = DateTime.now();
+      });
+
+      debugPrint("------------------------------------------------");
+      debugPrint("LOCAL CRY RESULT: ${result.label}");
+      debugPrint(
+        "Confidence: ${(result.confidence * 100).toStringAsFixed(1)}%",
+      );
+      debugPrint("All Probs: ${result.rawProbs}");
+      debugPrint("------------------------------------------------");
+
+      // Optional: still feed into your voting logic if you want
+      _updateAsphyxiaVotes(result);
+
+      // 4. Backend cry XAI FIRST -> keep _lastCryXai fresh
+      try {
+        final cryXai = await _xaiService.predictCry(tempFile);
+        if (!mounted) return;
+
+        setState(() {
+          _lastCryXai = cryXai;
+        });
+
+        debugPrint(
+          '[XAI] Cry label=${cryXai.label}, '
+          'conf=${cryXai.confidence}, explanation=${cryXai.explanation}',
+        );
+      } catch (e) {
+        debugPrint("[XAI] Cry injection error: $e");
+      }
+
+      // 5. Now evaluate risk (this may call _sendXaiRequest, which
+      //    will store pose + expression + _lastCryXai into ReportCenter)
+      final risk = _evaluateAndMaybeSendXAI();
+
+      if (risk == null) {
+        debugPrint("[XAI] Risk is null; no snapshot will be saved.");
+      } else {
+        debugPrint(
+          "[XAI] Injection risk => level=${risk.riskLevel}, "
+          "totalScore=${risk.totalScore}, "
+          "shouldSendToCloud=${risk.shouldSendToCloud}",
+        );
       }
     } catch (e) {
       debugPrint("INJECTION ERROR: $e");
@@ -562,6 +516,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       }
     }
   }
+
 
   void _pushNotificationsForLabels({
     required String sleepLabel,
@@ -635,19 +590,61 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     if (!cryAbnormal) _lastNotifiedCryLabel = null;
   }
 
-  Future<void> _sendXaiRequest() async {
+  String _composeAlertSummary({
+    required String sleepLabel,
+    required String exprLabel,
+    required String cryLabel,
+    required String riskLevel,
+  }) {
+    final parts = <String>[];
+
+    // Tune these exact strings to match your FYP wording
+    if (sleepLabel != 'Normal' && sleepLabel != 'Supine') {
+      parts.add('Abnormal sleeping position detected ($sleepLabel).');
+    }
+
+    if (exprLabel != 'Normal') {
+      parts.add('Facial expression indicates $exprLabel.');
+    }
+
+    if (cryLabel != 'Silent' && cryLabel != 'Normal') {
+      parts.add('$cryLabel cry detected.');
+    }
+
+    if (parts.isEmpty) {
+      parts.add('Non-baseline behaviour detected by BabyGuard.');
+    }
+
+    parts.add('Overall risk level: ${riskLevel.toUpperCase()}.');
+
+    return parts.join(' ');
+  }
+
+
+ Future<void> _sendXaiRequest({
+    required RiskResult risk,
+    required String sleepLabel,
+    required String exprLabel,
+    required String cryLabel,
+    }) async {
     debugPrint('[XAI] Sending cached frame to backend...');
 
     try {
-      // 0) Make sure we actually have a cached frame
-      if (_lastFrameFile == null) {
-        debugPrint('[XAI] No cached frame available; skipping XAI.');
+      // 0) Prefer a fresh COLOR snapshot from the camera
+      File? imageFile = await _captureColorSnapshot();
+
+      // Fallback to the last cached frame if we couldn’t capture
+      imageFile ??= _lastFrameFile;
+
+      if (imageFile == null) {
+        debugPrint('[XAI] No frame available (color or cached); skipping XAI.');
         return;
       }
 
-      final imageFile = _lastFrameFile!;
+      // Keep this as the latest frame as well
+      _lastFrameFile = imageFile;
 
-      // 1) Pose XAI on cached FULL frame
+      // 1) Pose XAI on the color snapshot  (BACKEND)
       final poseXai = await _xaiService.predictPose(imageFile);
 
       // 2) Prepare expression XAI image using cached face rect (if any)
@@ -696,16 +693,16 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
             exprImageFile = faceFile;
           } else {
-            debugPrint('[XAI] Failed to decode cached frame for cropping.');
+            debugPrint('[XAI] Failed to decode color frame for cropping.');
           }
         } catch (e) {
-          debugPrint('[XAI] Error while cropping cached face: $e');
+          debugPrint('[XAI] Error while cropping color frame: $e');
         }
       } else {
         debugPrint('[XAI] No cached face rect; expression XAI will use full frame.');
       }
 
-      // 3) Expression XAI: prefer cropped face; fallback to full frame
+      // 3) Expression XAI: prefer cropped face; fallback to full color frame
       XaiResult? exprXai;
       try {
         final fileForExpr = exprImageFile ?? imageFile;
@@ -719,72 +716,77 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       setState(() {
         _lastPoseXai = poseXai;
         _lastExpressionXai = exprXai;
+        // _lastCryXai is updated via _sendCryXai / injection when used
       });
 
-      // 4) Show dialog (same as before)
-      await showDialog(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            title: const Text('Explainability Snapshot'),
-            content: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Pose (backend):',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    '${poseXai.label} '
-                    '(${(poseXai.confidence * 100).toStringAsFixed(1)}%)',
-                  ),
-                  const SizedBox(height: 4),
-                  Text(poseXai.explanation),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 180,
-                    child: Image.memory(poseXai.overlayImageBytes),
-                  ),
-                  const SizedBox(height: 16),
+      // ---------- BACKEND LABELS ----------
+      final String backendPoseLabel = poseXai.label;
+      final String backendExprLabel = exprXai?.label ?? exprLabel;
+      final String backendCryLabel = _lastCryXai?.label ?? cryLabel;
 
-                  if (exprXai != null) ...[
-                    const Text(
-                      'Expression (backend):',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      '${exprXai.label} '
-                      '(${(exprXai.confidence * 100).toStringAsFixed(1)}%)',
-                    ),
-                    const SizedBox(height: 4),
-                    Text(exprXai.explanation),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 180,
-                      child: Image.memory(exprXai.overlayImageBytes),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-            ],
-          );
-        },
+      // ---------- BACKEND-BASED RISK FUSION ----------
+      final backendRisk = evaluateRisk(
+        sleeping: Pred(backendPoseLabel),
+        expression: Pred(backendExprLabel),
+        cry: Pred(backendCryLabel),
       );
+      final backendRiskLevel = backendRisk.riskLevel.toUpperCase();
+
+      // 4) Save snapshot for the Report tab (no dialog)
+      final snapshot = AlertSnapshot(
+        time: DateTime.now(),
+        riskLevel: backendRiskLevel,   // <--- risk from backend labels
+        summary: _composeAlertSummary(
+          sleepLabel: backendPoseLabel,
+          exprLabel: backendExprLabel,
+          cryLabel: backendCryLabel,
+          riskLevel: backendRisk.riskLevel,
+        ),
+        poseXai: poseXai,
+        expressionXai: exprXai,
+        cryXai: _lastCryXai,
+        originalFrameFile: imageFile,
+        poseLabel: backendPoseLabel,
+        expressionLabel: backendExprLabel,
+        cryLabel: backendCryLabel,
+      );
+
+      ReportCenter.instance.addAlert(snapshot);
+      debugPrint('[XAI] Snapshot saved to ReportCenter (backend labels + backend fusion).');
     } catch (e) {
       debugPrint('[XAI] Error sending snapshot: $e');
-    } finally {
-      // No need to stop/start image stream here anymore,
-      // since we used the cached frame, not takePicture().
+    }
+    }
+
+
+  Future<File?> _captureColorSnapshot() async {
+    try {
+      // Don’t double-call
+      if (widget.controller.value.isTakingPicture) {
+        return null;
+      }
+
+      final bool wasStreaming = widget.controller.value.isStreamingImages;
+
+      // Temporarily stop the image stream (required on many devices)
+      if (wasStreaming) {
+        await widget.controller.stopImageStream();
+      }
+
+      final XFile still = await widget.controller.takePicture();
+      final file = File(still.path);
+
+      // Optionally restart the stream so your pipeline continues
+      if (wasStreaming) {
+        _startImageStream();
+      }
+
+      return file;
+    } catch (e) {
+      debugPrint('[Snapshot] Error capturing color still: $e');
+      return null;
     }
   }
-
 
   RiskResult? _evaluateAndMaybeSendXAI() {
     final now = DateTime.now();
@@ -857,10 +859,34 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       // TODO: local alert UI/notification
     }
 
-    if (risk.shouldSendToCloud) {
-      debugPrint('[Risk] shouldSendToCloud = true, call XAI backend here.');
-      _sendXaiRequest(); 
+        if (risk.shouldSendToCloud) {
+      // Only send to cloud if something has changed since last cloud call
+      final bool labelsChanged =
+          sleepLabel != _lastCloudSleepLabel ||
+          exprLabel != _lastCloudExprLabel ||
+          cryLabel != _lastCloudCryLabel ||
+          risk.riskLevel != _lastCloudRiskLevel;
+
+      if (!labelsChanged) {
+        debugPrint('[Risk] shouldSendToCloud=true but labels/risk unchanged; skip XAI to avoid spam.');
+        return risk;
+      }
+
+      debugPrint('[Risk] shouldSendToCloud = true AND labels changed, calling XAI backend.');
+
+      _lastCloudSleepLabel = sleepLabel;
+      _lastCloudExprLabel = exprLabel;
+      _lastCloudCryLabel = cryLabel;
+      _lastCloudRiskLevel = risk.riskLevel;
+
+      _sendXaiRequest(
+        risk: risk,
+        sleepLabel: sleepLabel,
+        exprLabel: exprLabel,
+        cryLabel: cryLabel,
+      );
     }
+
 
     return risk;
   }
