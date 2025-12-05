@@ -57,11 +57,11 @@ class _LoginPageState extends State<LoginPage> {
                 // Username
                 _InputBox(
                   controller: _userCtrl,
-                  hint: 'Username',
-                  icon: Icons.person_2_outlined,
+                  hint: 'Email',
+                  icon: Icons.mail_outline_rounded,
                   keyboardType: TextInputType.text,
                   validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Enter username' : null,
+                      (v == null || v.trim().isEmpty) ? 'Enter email' : null,
                 ),
                 const SizedBox(height: 22),
 

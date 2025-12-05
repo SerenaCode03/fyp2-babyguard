@@ -36,7 +36,7 @@ class XaiBackendService {
   final String baseUrl;
 
   XaiBackendService({
-    this.baseUrl = 'https://b3f3c53948c6.ngrok-free.app',
+    this.baseUrl = 'https://c5efad4b6cf8.ngrok-free.app',
   });
 
   Future<XaiResult> predictPose(File imageFile) async {

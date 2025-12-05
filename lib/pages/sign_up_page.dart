@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
-// if you named it differently, adjust
+import '../services/auth_service.dart';
+import '../services/session_manager.dart';
 
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
@@ -16,6 +17,21 @@ class _SignUpPageState extends State<SignUpPage> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
+  final _secAnswerCtrl = TextEditingController();
+
+  final List<String> _questions = [
+    'What is your mother\'s maiden name?',
+    'What was your first pet\'s name?',
+    'What is the name of the town you were born in?',
+    'What is your favorite childhood food?',
+  ];
+  String? _selectedQuestion;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedQuestion = _questions.first;
+  }
 
   bool _obscurePass = true;
   bool _obscureConfirm = true;
@@ -26,6 +42,7 @@ class _SignUpPageState extends State<SignUpPage> {
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmCtrl.dispose();
+    _secAnswerCtrl.dispose();
     super.dispose();
   }
 
@@ -45,6 +62,21 @@ class _SignUpPageState extends State<SignUpPage> {
 
   void _submit() {
     if (_formKey.currentState?.validate() ?? false) {
+
+      if (_selectedQuestion == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a security question')),
+        );
+        return;
+      }
+
+      if (_secAnswerCtrl.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter an answer')),
+        );
+        return;
+      }
+
       // TODO: hook up to your signup API
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Creating account…')),
@@ -58,7 +90,7 @@ class _SignUpPageState extends State<SignUpPage> {
       backgroundColor: white,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
+          padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
           child: Form(
             key: _formKey,
             child: Column(
@@ -140,6 +172,67 @@ class _SignUpPageState extends State<SignUpPage> {
                     }
                     return null;
                   },
+                ),
+
+                const SizedBox(height: 20),
+                const Text(
+                  'Security Question',
+                  style: TextStyle(
+                    color: black,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Dropdown
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: gray,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: DropdownButtonFormField<String>(
+                    isExpanded: true, // 
+                    value: _selectedQuestion,
+                    items: _questions.map((q) {
+                      return DropdownMenuItem<String>(
+                        value: q,
+                        child: SizedBox(
+                          width: double.infinity, 
+                          child: Text(
+                            q,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis, // or remove to allow full wrap
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: black,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setState(() => _selectedQuestion = value);
+                    },
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                    ),
+                    validator: (v) =>
+                        v == null ? 'Please select a security question' : null,
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Security Answer input
+                _InputBox(
+                  controller: _secAnswerCtrl,
+                  hint: 'Your answer',
+                  icon: Icons.question_answer_outlined,
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Enter your answer' : null,
                 ),
 
                 const SizedBox(height: 40),
