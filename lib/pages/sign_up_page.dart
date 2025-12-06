@@ -108,13 +108,13 @@ class _SignUpPageState extends State<SignUpPage> {
       return;
     }
 
-    SessionManager.login(userId, email, username);
+    // SessionManager.login(userId, email, username);
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Account created successfully')),
     );
 
-    Navigator.pushReplacementNamed(context, '/home');
+    Navigator.pushReplacementNamed(context, '/login');
   }
 
   @override

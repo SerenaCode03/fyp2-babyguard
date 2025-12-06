@@ -17,6 +17,7 @@ import '../services/xai_backend_service.dart';
 import 'package:fyp2_babyguard/components/notification_card.dart';
 import 'package:fyp2_babyguard/services/notification_center.dart';
 import 'package:fyp2_babyguard/services/report_center.dart';
+import '../services/session_manager.dart';
 
 
 class CameraPreviewPage extends StatefulWidget {
@@ -247,15 +248,13 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
           });
 
           // Notice: Baby detected
-          NotificationCenter.instance.add(
-            NotificationItem(
-              kind: NoticeKind.notice,
-              title: 'Notice: Baby detected',
-              time: DateTime.now(),
-              icon: Icons.child_care_rounded,
-              tint: const Color(0xFF2ECC71),
-            ),
+          NotificationCenter.instance.addAndPersist(
+            userId: SessionManager.currentUserId!,
+            category: 'system',
+            title: 'Notice: Baby detected',
+            timestamp: DateTime.now(),
           );
+
         }
       } catch (e) {
         debugPrint('MLKit gate error: $e');
@@ -524,46 +523,44 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     required String cryLabel,
   }) {
     final now = DateTime.now();
+    final int currentUserId = SessionManager.currentUserId!;
 
-    // ---- Posture / pose ----
+    // unified alert tint (soft yellow)
+    const alertTint = Color(0xFFFFE9A9);
+
+    // ------------------------- SLEEP -------------------------
     final bool sleepAbnormal =
         sleepLabel == 'Abnormal' ||
         sleepLabel == 'Prone' ||
         sleepLabel == 'Side';
 
     if (sleepAbnormal && sleepLabel != _lastNotifiedSleepLabel) {
-      NotificationCenter.instance.add(
-        NotificationItem(
-          kind: NoticeKind.alert,
-          title: 'Alert: Abnormal posture detected',
-          time: now,
-          icon: Icons.bed_rounded,
-          tint: const Color(0xFFF0AD00),
-        ),
+      NotificationCenter.instance.addAndPersist(
+        userId: currentUserId,
+        category: 'pose',
+        title: 'Alert: Abnormal posture detected',
+        timestamp: now,
       );
       _lastNotifiedSleepLabel = sleepLabel;
     }
 
-    // ---- Facial expression ----
+    // ------------------------- EXPRESSION -------------------------
     final bool exprAbnormal =
         exprLabel == 'Distressed' ||
         exprLabel == 'Crying' ||
         exprLabel == 'Uncomfortable';
 
     if (exprAbnormal && exprLabel != _lastNotifiedExprLabel) {
-      NotificationCenter.instance.add(
-        NotificationItem(
-          kind: NoticeKind.alert,
-          title: 'Alert: Distressed face detected',
-          time: now,
-          icon: Icons.sentiment_dissatisfied_rounded,
-          tint: const Color(0xFFF0AD00),
-        ),
+      NotificationCenter.instance.addAndPersist(
+        userId: currentUserId,
+        category: 'expression',
+        title: 'Alert: Distressed face detected',
+        timestamp: now,
       );
       _lastNotifiedExprLabel = exprLabel;
     }
 
-    // ---- Cry ----
+    // ------------------------- CRY -------------------------
     final bool cryAbnormal = cryLabel != 'Silent' && cryLabel != 'Normal';
 
     if (cryAbnormal && cryLabel != _lastNotifiedCryLabel) {
@@ -571,20 +568,16 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
           ? 'Alert: Asphyxia cry detected'
           : 'Alert: $cryLabel cry detected';
 
-      NotificationCenter.instance.add(
-        NotificationItem(
-          kind: NoticeKind.alert,
-          title: title,
-          time: now,
-          icon: Icons.graphic_eq_rounded,
-          tint: const Color(0xFFF0AD00),
-        ),
+      NotificationCenter.instance.addAndPersist(
+        userId: currentUserId,
+        category: 'cry',
+        title: title,
+        timestamp: now,
       );
       _lastNotifiedCryLabel = cryLabel;
     }
 
-    // Optional: if modality returns to baseline, reset so future abnormal
-    // can trigger a new notification again.
+    // Reset conditions
     if (!sleepAbnormal) _lastNotifiedSleepLabel = null;
     if (!exprAbnormal) _lastNotifiedExprLabel = null;
     if (!cryAbnormal) _lastNotifiedCryLabel = null;

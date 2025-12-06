@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
 import '../services/auth_service.dart';
 import '../services/session_manager.dart';
+import '../services/notification_center.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -26,7 +27,6 @@ class _LoginPageState extends State<LoginPage> {
 
   void _handleLogin() async {
     if (_isLoggingIn) return;
-
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() => _isLoggingIn = true);
@@ -34,10 +34,11 @@ class _LoginPageState extends State<LoginPage> {
     final email = _userCtrl.text.trim();
     final password = _passCtrl.text;
 
+    // AuthService login returns ONLY userId
     final userId = await AuthService.instance.login(
       email: email,
       password: password,
-    ); 
+    );
 
     if (!mounted) return;
 
@@ -49,6 +50,7 @@ class _LoginPageState extends State<LoginPage> {
       );
       return;
     }
+    await NotificationCenter.instance.loadForUser(SessionManager.currentUserId!);
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Logged in successfully')),

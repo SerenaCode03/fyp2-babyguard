@@ -33,12 +33,7 @@ class NotificationPage extends StatelessWidget {
                     );
                   }
                   return ListView(
-                    padding: const EdgeInsets.fromLTRB(
-                      16,
-                      16,
-                      16,
-                      16, 
-                    ),
+                    padding: const EdgeInsets.fromLTRB(16,16,16,16),
                     children: [
                       _DateHeader(date: now),
                       const SizedBox(height: 12),

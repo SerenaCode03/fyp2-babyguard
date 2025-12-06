@@ -88,13 +88,14 @@ class AuthService {
   }
 
   /// Reset password after verifying security answer.
-  /// Returns true if success, false if email not found or wrong answer.
+  /// Returns true on success, false on wrong answer or user not found.
   Future<bool> resetPasswordWithSecurityAnswer({
     required String email,
     required String answer,
     required String newPassword,
   }) async {
     final db = await _db;
+
     final rows = await db.query(
       'users',
       where: 'email = ?',
@@ -117,6 +118,7 @@ class AuthService {
       where: 'email = ?',
       whereArgs: [email.trim()],
     );
+
     return true;
   }
 }
