@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
+import '../services/auth_service.dart';
+import '../services/session_manager.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -13,6 +15,7 @@ class _LoginPageState extends State<LoginPage> {
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _obscure = true;
+  bool _isLoggingIn = false; 
 
   @override
   void dispose() {
@@ -20,6 +23,40 @@ class _LoginPageState extends State<LoginPage> {
     _passCtrl.dispose();
     super.dispose();
   }
+
+  void _handleLogin() async {
+    if (_isLoggingIn) return;
+
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    setState(() => _isLoggingIn = true);
+
+    final email = _userCtrl.text.trim();
+    final password = _passCtrl.text;
+
+    final userId = await AuthService.instance.login(
+      email: email,
+      password: password,
+    ); 
+
+    if (!mounted) return;
+
+    setState(() => _isLoggingIn = false);
+
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid email or password')),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Logged in successfully')),
+    );
+
+    Navigator.pushReplacementNamed(context, '/home');
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -120,28 +157,27 @@ class _LoginPageState extends State<LoginPage> {
                         borderRadius: BorderRadius.circular(18),
                       ),
                     ),
-                    onPressed: () {
-                      if (_formKey.currentState?.validate() ?? false) {
-                        // TODO: handle real login
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Logging in…')),
-                        );
-                        Navigator.pushReplacementNamed(context, '/home');
-                      }
-                    },
-                    child: const Text(
-                      'Login',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
+                    onPressed: _isLoggingIn ? null : _handleLogin,
+                    child: _isLoggingIn
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: white,
+                            ),
+                          )
+                        : const Text(
+                            'Login',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
                   ),
                 ),
-
                 const SizedBox(height: 18),
-
                 // Sign up
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,

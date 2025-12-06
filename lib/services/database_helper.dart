@@ -31,7 +31,7 @@ class DatabaseHelper {
       CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT NOT NULL UNIQUE,
-        username TEXT NOT NULL
+        username TEXT NOT NULL,
         passwordHash TEXT NOT NULL,
         securityQuestion TEXT NOT NULL,
         securityAnswerHash TEXT NOT NULL,

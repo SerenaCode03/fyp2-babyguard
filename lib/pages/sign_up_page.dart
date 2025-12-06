@@ -35,6 +35,7 @@ class _SignUpPageState extends State<SignUpPage> {
 
   bool _obscurePass = true;
   bool _obscureConfirm = true;
+  bool _isSubmitting = false; 
 
   @override
   void dispose() {
@@ -60,28 +61,60 @@ class _SignUpPageState extends State<SignUpPage> {
     return null;
   }
 
-  void _submit() {
-    if (_formKey.currentState?.validate() ?? false) {
+  void _submit() async {
+    if (_isSubmitting) return;
 
-      if (_selectedQuestion == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select a security question')),
-        );
-        return;
-      }
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
-      if (_secAnswerCtrl.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter an answer')),
-        );
-        return;
-      }
-
-      // TODO: hook up to your signup API
+    if (_selectedQuestion == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Creating account…')),
+        const SnackBar(content: Text('Please select a security question')),
       );
+      return;
     }
+
+    if (_secAnswerCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter an answer')),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    final email = _emailCtrl.text.trim();
+    final username = _usernameCtrl.text.trim();
+    final password = _passwordCtrl.text;
+    final question = _selectedQuestion!;
+    final answer = _secAnswerCtrl.text.trim();
+
+    final userId = await AuthService.instance.signUp(
+      email: email,
+      username: username,
+      password: password,
+      securityQuestion: question,
+      securityAnswer: answer,
+    );
+
+    // widget might have been disposed while awaiting
+    if (!mounted) return;
+
+    setState(() => _isSubmitting = false);
+
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Email is already registered')),
+      );
+      return;
+    }
+
+    SessionManager.login(userId, email, username);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Account created successfully')),
+    );
+
+    Navigator.pushReplacementNamed(context, '/home');
   }
 
   @override

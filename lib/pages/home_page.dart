@@ -1,5 +1,4 @@
 import 'dart:ui';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/pages/notification_page.dart';
@@ -11,6 +10,7 @@ import 'package:fyp2_babyguard/components/bottom_nav_bar.dart';
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fyp2_babyguard/pages/camera_preview_page.dart';
+import '../services/session_manager.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -32,6 +32,17 @@ class _HomePageState extends State<HomePage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    // Redirect to login if not logged in
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!SessionManager.isLoggedIn) {
+        Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).padding.bottom;
 
@@ -41,10 +52,8 @@ class _HomePageState extends State<HomePage> {
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
-          // CONTENT AREA
           SafeArea(
             child: Padding(
-              // 👇 reserve space for: 40 (your bottom offset) + nav bar height
               padding: EdgeInsets.only(bottom: 40 + _navBarHeight),
               child: IndexedStack(
                 index: _index,
@@ -235,9 +244,9 @@ class _HomeContentState extends State<_HomeContent> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Welcome back,\nSerena!',
-            style: TextStyle(
+          Text(
+            'Welcome back,\n${SessionManager.currentUsername ?? 'User'}!',
+            style: const TextStyle(
               color: black,
               fontSize: 22,
               fontWeight: FontWeight.w800,

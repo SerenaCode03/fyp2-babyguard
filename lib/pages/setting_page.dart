@@ -1,22 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
 import 'package:fyp2_babyguard/components/header_bar.dart';
+import '../services/session_manager.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // HeaderBar should always attach directly to top, left, and right.
     return MediaQuery.removePadding(
       context: context,
       removeTop: true,
       child: Column(
         children: [
-          // Full-width top header (no padding, flush with screen)
           const HeaderBar(title: 'Settings'),
 
-          // Main scrollable content area (with inner padding)
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
@@ -56,9 +54,9 @@ class SettingsPage extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 14),
-                        const Text(
-                          'Serena',
-                          style: TextStyle(
+                        Text(
+                          SessionManager.currentUsername ?? 'Guest',
+                          style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w800,
                             color: black,
@@ -94,6 +92,7 @@ class SettingsPage extends StatelessWidget {
                       fontSize: 18,
                     ),
                     onTap: () {
+                      SessionManager.logout();
                       Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
                     },
                   ),
