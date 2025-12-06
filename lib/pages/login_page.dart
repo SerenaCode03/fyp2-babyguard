@@ -3,6 +3,7 @@ import 'package:fyp2_babyguard/utilities/color.dart';
 import '../services/auth_service.dart';
 import '../services/session_manager.dart';
 import '../services/notification_center.dart';
+import '../services/report_center.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -51,6 +52,7 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
     await NotificationCenter.instance.loadForUser(SessionManager.currentUserId!);
+    await ReportCenter.instance.loadForUser(SessionManager.currentUserId!);
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Logged in successfully')),

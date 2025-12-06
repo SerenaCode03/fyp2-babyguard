@@ -1,9 +1,9 @@
-// lib/services/xai_backend_service.dart
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-
 import 'package:http/http.dart' as http;
+
+import '../config/api_config.dart'; 
 
 class XaiResult {
   final String label;
@@ -32,23 +32,17 @@ class XaiResult {
 }
 
 class XaiBackendService {
-  /// - Physical device:  http://<your-laptop-ip>:8000
   final String baseUrl;
 
   XaiBackendService({
-    this.baseUrl = 'https://c5efad4b6cf8.ngrok-free.app',
+    this.baseUrl = ApiConfig.xaiBaseUrl,  // <-- NOW coming from config
   });
 
   Future<XaiResult> predictPose(File imageFile) async {
     final uri = Uri.parse('$baseUrl/predict/pose');
     final request = http.MultipartRequest('POST', uri);
 
-    request.files.add(
-      await http.MultipartFile.fromPath(
-        'file',       // MUST match `file: UploadFile = File(...)`
-        imageFile.path,
-      ),
-    );
+    request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
 
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
@@ -57,16 +51,14 @@ class XaiBackendService {
       throw Exception('Pose XAI failed: ${response.body}');
     }
 
-    final data = json.decode(response.body) as Map<String, dynamic>;
-    return XaiResult.fromJson(data);
+    return XaiResult.fromJson(json.decode(response.body));
   }
 
   Future<XaiResult> predictExpression(File imageFile) async {
     final uri = Uri.parse('$baseUrl/predict/expression');
     final request = http.MultipartRequest('POST', uri);
 
-    request.files.add(
-      await http.MultipartFile.fromPath('file', imageFile.path));
+    request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
 
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
@@ -75,16 +67,14 @@ class XaiBackendService {
       throw Exception('Expression XAI failed: ${response.body}');
     }
 
-    final data = json.decode(response.body) as Map<String, dynamic>;
-    return XaiResult.fromJson(data);
+    return XaiResult.fromJson(json.decode(response.body));
   }
 
   Future<XaiResult> predictCry(File audioFile) async {
     final uri = Uri.parse('$baseUrl/predict/cry');
     final request = http.MultipartRequest('POST', uri);
 
-    request.files.add(
-      await http.MultipartFile.fromPath('file', audioFile.path));
+    request.files.add(await http.MultipartFile.fromPath('file', audioFile.path));
 
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
@@ -93,7 +83,6 @@ class XaiBackendService {
       throw Exception('Cry XAI failed: ${response.body}');
     }
 
-    final data = json.decode(response.body) as Map<String, dynamic>;
-    return XaiResult.fromJson(data);
+    return XaiResult.fromJson(json.decode(response.body));
   }
 }

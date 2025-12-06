@@ -1,4 +1,6 @@
 // pages/report_page.dart
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/components/alert_card.dart';
 import 'package:fyp2_babyguard/components/header_bar.dart';
@@ -85,53 +87,71 @@ class ReportPage extends StatelessWidget {
     }
   }
 
-  void _openDetails(BuildContext context, AlertSnapshot snap) {
+ void _openDetails(BuildContext context, AlertSnapshot snap) {
     final insights = <InsightItem>[];
-
-    // Pose insight (always)
-    insights.add(
-      InsightItem(
-        image: MemoryImage(snap.poseXai.overlayImageBytes),
-        title: 'Sleeping pose insight',
-        body: snap.poseXai.explanation,
-      ),
-    );
-
-    // Expression insight (optional)
-    if (snap.expressionXai != null) {
-      insights.add(
-        InsightItem(
-          image: MemoryImage(snap.expressionXai!.overlayImageBytes),
-          title: 'Facial expression insight',
-          body: snap.expressionXai!.explanation,
-        ),
-      );
-    }
-
-    // Cry insight (optional)
-    if (snap.cryXai != null) {
-      insights.add(
-        InsightItem(
-          image: MemoryImage(snap.cryXai!.overlayImageBytes),
-          title: 'Cry pattern insight',
-          body: snap.cryXai!.explanation,
-        ),
-      );
-    }
-
     final metrics = <String, double>{};
 
-    metrics['Pose: ${snap.poseLabel}'] = snap.poseXai.confidence;
+    // CASE 1: Live (in-memory) XAI
+    if (snap.poseXai != null) {
+      // Pose insight (always)
+      insights.add(
+        InsightItem(
+          image: MemoryImage(snap.poseXai!.overlayImageBytes),
+          title: 'Sleeping pose insight',
+          body: snap.poseXai!.explanation,
+        ),
+      );
 
-    if (snap.expressionXai != null) {
-      metrics['Expression: ${snap.expressionLabel}'] =
-          snap.expressionXai!.confidence;
+      // Expression insight (optional)
+      if (snap.expressionXai != null) {
+        insights.add(
+          InsightItem(
+            image: MemoryImage(snap.expressionXai!.overlayImageBytes),
+            title: 'Facial expression insight',
+            body: snap.expressionXai!.explanation,
+          ),
+        );
+      }
+
+      // Cry insight (optional)
+      if (snap.cryXai != null) {
+        insights.add(
+          InsightItem(
+            image: MemoryImage(snap.cryXai!.overlayImageBytes),
+            title: 'Cry pattern insight',
+            body: snap.cryXai!.explanation,
+          ),
+        );
+      }
+
+      // Metrics from XaiResult confidences
+      metrics['Pose: ${snap.poseLabel}'] = snap.poseXai!.confidence;
+      if (snap.expressionXai != null) {
+        metrics['Expression: ${snap.expressionLabel}'] =
+            snap.expressionXai!.confidence;
+      }
+      if (snap.cryXai != null) {
+        metrics['Cry: ${snap.cryLabel}'] = snap.cryXai!.confidence;
+      }
+
+    } else {
+      // CASE 2: Loaded from database
+      if (snap.storedInsights != null) {
+        for (final si in snap.storedInsights!) {
+          insights.add(
+            InsightItem(
+              image: FileImage(File(si.imagePath)),
+              title: si.title,
+              body: si.description,
+            ),
+          );
+        }
+      }
+
+      if (snap.storedMetrics != null) {
+        metrics.addAll(snap.storedMetrics!);
+      }
     }
-
-    if (snap.cryXai != null) {
-      metrics['Cry: ${snap.cryLabel}'] = snap.cryXai!.confidence;
-    }
-
 
     final ts = _formatTime(snap.time);
     final riskUpper = snap.riskLevel.toUpperCase();
@@ -151,7 +171,8 @@ class ReportPage extends StatelessWidget {
         ),
       ),
     );
-  }
+    }
+
 
   String _formatTime(DateTime dt) {
     final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;

@@ -16,9 +16,8 @@ import '../services/risk_scoring.dart';
 import '../services/xai_backend_service.dart';
 import 'package:fyp2_babyguard/components/notification_card.dart';
 import 'package:fyp2_babyguard/services/notification_center.dart';
+import 'package:fyp2_babyguard/services/session_manager.dart';
 import 'package:fyp2_babyguard/services/report_center.dart';
-import '../services/session_manager.dart';
-
 
 class CameraPreviewPage extends StatefulWidget {
   final CameraController controller;
@@ -525,9 +524,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     final now = DateTime.now();
     final int currentUserId = SessionManager.currentUserId!;
 
-    // unified alert tint (soft yellow)
-    const alertTint = Color(0xFFFFE9A9);
-
     // ------------------------- SLEEP -------------------------
     final bool sleepAbnormal =
         sleepLabel == 'Abnormal' ||
@@ -725,10 +721,9 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       );
       final backendRiskLevel = backendRisk.riskLevel.toUpperCase();
 
-      // 4) Save snapshot for the Report tab (no dialog)
       final snapshot = AlertSnapshot(
         time: DateTime.now(),
-        riskLevel: backendRiskLevel,   // <--- risk from backend labels
+        riskLevel: backendRiskLevel,   
         summary: _composeAlertSummary(
           sleepLabel: backendPoseLabel,
           exprLabel: backendExprLabel,
@@ -744,8 +739,17 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         cryLabel: backendCryLabel,
       );
 
-      ReportCenter.instance.addAlert(snapshot);
-      debugPrint('[XAI] Snapshot saved to ReportCenter (backend labels + backend fusion).');
+      // ReportCenter.instance.addAlert(snapshot);
+      final userId = SessionManager.currentUserId!;
+      await ReportCenter.instance.addAlertAndPersist(
+        userId: userId,
+        snapshot: snapshot,
+      );
+
+      debugPrint(
+        '[XAI] Snapshot saved to ReportCenter + DB '
+        '(backend labels + backend fusion).',
+      );
     } catch (e) {
       debugPrint('[XAI] Error sending snapshot: $e');
     }
