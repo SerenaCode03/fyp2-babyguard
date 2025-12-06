@@ -74,6 +74,10 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   String? _lastCloudCryLabel;
   String? _lastCloudRiskLevel;
 
+  String? _lastRiskAlertLevel;
+  DateTime _nextRiskAlertAllowed = DateTime.fromMillisecondsSinceEpoch(0);
+
+
   static const Duration _riskWindow = Duration(seconds: 10);
   final List<bool> _asphyxiaRing = [];
   static const int _M = 5;              // window size
@@ -515,6 +519,37 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     }
   }
 
+  Duration _riskCooldownFor(String level) {
+    switch (level.toUpperCase()) {
+      case 'HIGH':
+        return const Duration(seconds: 30);
+      case 'MODERATE':
+        return const Duration(minutes: 2);
+      case 'LOW':
+      default:
+        return const Duration(minutes: 5);
+    }
+  }
+
+  bool _shouldNotifyRiskLevel(String level, DateTime now) {
+    // If the level changed, always allow a new alert immediately
+    if (_lastRiskAlertLevel != level) {
+      _lastRiskAlertLevel = level;
+      _nextRiskAlertAllowed = now.add(_riskCooldownFor(level));
+      return true;
+    }
+
+    // Same level as last time → only allow if cooldown has passed
+    if (now.isAfter(_nextRiskAlertAllowed)) {
+      _lastRiskAlertLevel = level;
+      _nextRiskAlertAllowed = now.add(_riskCooldownFor(level));
+      return true;
+    }
+
+    // Still in cooldown window → block
+    return false;
+  }
+
 
   void _pushNotificationsForLabels({
     required String sleepLabel,
@@ -848,16 +883,18 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
     if (risk.totalScore <= 0) {
       debugPrint('[Risk] totalScore <= 0, no further action.');
+
+      // Optional: reset cloud cache so the NEXT non-zero episode will definitely trigger XAI again:
+      _lastCloudSleepLabel = null;
+      _lastCloudExprLabel = null;
+      _lastCloudCryLabel = null;
+      _lastCloudRiskLevel = null;
+
       return risk;
     }
 
-    if (risk.riskLevel == 'High') {
-      debugPrint('[Risk] HIGH risk detected! (should alert user)');
-      // TODO: local alert UI/notification
-    }
-
-        if (risk.shouldSendToCloud) {
-      // Only send to cloud if something has changed since last cloud call
+    // --- 3) Decide whether to call XAI backend ---
+    if (risk.shouldSendToCloud) {
       final bool labelsChanged =
           sleepLabel != _lastCloudSleepLabel ||
           exprLabel != _lastCloudExprLabel ||
@@ -865,12 +902,19 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
           risk.riskLevel != _lastCloudRiskLevel;
 
       if (!labelsChanged) {
-        debugPrint('[Risk] shouldSendToCloud=true but labels/risk unchanged; skip XAI to avoid spam.');
+        debugPrint(
+          '[Risk] shouldSendToCloud=true but '
+          'labels/risk unchanged; skip XAI to avoid spam.',
+        );
         return risk;
       }
 
-      debugPrint('[Risk] shouldSendToCloud = true AND labels changed, calling XAI backend.');
+      debugPrint(
+        '[Risk] shouldSendToCloud = true AND '
+        'labels or risk level changed, calling XAI backend.',
+      );
 
+      // Update “last cloud state” BEFORE calling backend
       _lastCloudSleepLabel = sleepLabel;
       _lastCloudExprLabel = exprLabel;
       _lastCloudCryLabel = cryLabel;
@@ -883,7 +927,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         cryLabel: cryLabel,
       );
     }
-
 
     return risk;
   }
