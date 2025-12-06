@@ -18,6 +18,7 @@ import 'package:fyp2_babyguard/components/notification_card.dart';
 import 'package:fyp2_babyguard/services/notification_center.dart';
 import 'package:fyp2_babyguard/services/session_manager.dart';
 import 'package:fyp2_babyguard/services/report_center.dart';
+import '../services/email_alert_service.dart';
 
 class CameraPreviewPage extends StatefulWidget {
   final CameraController controller;
@@ -919,6 +920,22 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       _lastCloudExprLabel = exprLabel;
       _lastCloudCryLabel = cryLabel;
       _lastCloudRiskLevel = risk.riskLevel;
+
+      final summaryText = _composeAlertSummary(
+        sleepLabel: sleepLabel,
+        exprLabel: exprLabel,
+        cryLabel: cryLabel,
+        riskLevel: risk.riskLevel,
+      );
+
+      // Fire-and-forget email (don’t block UI)
+      EmailAlertService.instance.sendRiskEmail(
+        riskLevel: risk.riskLevel,
+        sleepLabel: sleepLabel,
+        exprLabel: exprLabel,
+        cryLabel: cryLabel,
+        summary: summaryText,
+      );
 
       _sendXaiRequest(
         risk: risk,
