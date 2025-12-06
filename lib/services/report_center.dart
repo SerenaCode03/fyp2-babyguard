@@ -1,7 +1,9 @@
 // services/report_center.dart
 import 'dart:io';
+import 'dart:typed_data'; 
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'database_helper.dart';
 import 'xai_backend_service.dart';
@@ -80,9 +82,17 @@ class ReportCenter {
     _alerts.value = [];
   }
 
-  // =========================================================
+  // Helper: save Grad-CAM overlay bytes to a PNG file and return its path
+  Future<String> _saveOverlayToFile(Uint8List bytes, String prefix) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final file = File(
+      '${dir.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}.png',
+    );
+    await file.writeAsBytes(bytes);
+    return file.path;
+  }
+
   // SAVE: DB-backed save (called from CameraPreviewPage)
-  // =========================================================
   Future<void> addAlertAndPersist({
     required int userId,
     required AlertSnapshot snapshot,
@@ -107,41 +117,67 @@ class ReportCenter {
       'cryConfidence': snapshot.cryXai?.confidence,
     });
 
-    // 2) Insert XAI insights (using the original frame path as imagePath for now)
-    await db.insert('report_xai_insights', {
-      'reportId': reportId,
-      'imagePath': snapshot.originalFrameFile.path,
-      'title': 'Pose: ${snapshot.poseLabel}',
-      'description': snapshot.poseXai?.explanation ?? 'Pose insight',
-    });
+    // 2) Save Grad-CAM overlays to files (if available)
+    String? poseOverlayPath;
+    String? exprOverlayPath;
+    String? cryOverlayPath;
+
+    if (snapshot.poseXai != null) {
+      poseOverlayPath = await _saveOverlayToFile(
+        snapshot.poseXai!.overlayImageBytes,
+        'pose_overlay',
+      );
+    }
 
     if (snapshot.expressionXai != null) {
+      exprOverlayPath = await _saveOverlayToFile(
+        snapshot.expressionXai!.overlayImageBytes,
+        'expr_overlay',
+      );
+    }
+
+    if (snapshot.cryXai != null) {
+      cryOverlayPath = await _saveOverlayToFile(
+        snapshot.cryXai!.overlayImageBytes,
+        'cry_overlay',
+      );
+    }
+
+    // 3) Insert XAI insights using those overlay image paths
+    if (poseOverlayPath != null) {
       await db.insert('report_xai_insights', {
         'reportId': reportId,
-        'imagePath': snapshot.originalFrameFile.path,
+        'imagePath': poseOverlayPath,
+        'title': 'Pose: ${snapshot.poseLabel}',
+        'description': snapshot.poseXai!.explanation,
+      });
+    }
+
+    if (exprOverlayPath != null) {
+      await db.insert('report_xai_insights', {
+        'reportId': reportId,
+        'imagePath': exprOverlayPath,
         'title': 'Expression: ${snapshot.expressionLabel}',
         'description': snapshot.expressionXai!.explanation,
       });
     }
 
-    if (snapshot.cryXai != null) {
+    if (cryOverlayPath != null) {
       await db.insert('report_xai_insights', {
         'reportId': reportId,
-        'imagePath': snapshot.originalFrameFile.path,
+        'imagePath': cryOverlayPath,
         'title': 'Cry: ${snapshot.cryLabel}',
         'description': snapshot.cryXai!.explanation,
       });
     }
 
-    // 3) Update in-memory list so UI refreshes immediately
+    // 4) Update in-memory list so UI refreshes immediately
     final list = List<AlertSnapshot>.from(_alerts.value);
     list.insert(0, snapshot);
     _alerts.value = list;
   }
 
-  // =========================================================
   // LOAD: Hydrate reports from DB for the current user
-  // =========================================================
   Future<void> loadForUser(int userId) async {
     final db = await DatabaseHelper.instance.database;
 
@@ -194,14 +230,15 @@ class ReportCenter {
       final snapshotPath = row['snapshotPath'] as String?;
       // Fallback: if snapshotPath is null, use the first insight imagePath
       final frameFile = File(
-        snapshotPath ?? (storedInsights.isNotEmpty ? storedInsights.first.imagePath : ''),
+        snapshotPath ??
+            (storedInsights.isNotEmpty ? storedInsights.first.imagePath : ''),
       );
 
       final snap = AlertSnapshot(
         time: DateTime.parse(row['timestamp'] as String),
         riskLevel: (row['riskLevel'] as String?) ?? 'LOW',
         summary: (row['alertMessage'] as String?) ?? '',
-        poseXai: null,                // DB-loaded: no in-memory XaiResult
+        poseXai: null,
         expressionXai: null,
         cryXai: null,
         originalFrameFile: frameFile,

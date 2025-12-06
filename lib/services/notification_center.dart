@@ -138,7 +138,7 @@ class NotificationCenter {
       case 'system':
         return (
           kind: NoticeKind.notice,
-          icon: Icons.check_circle_rounded,
+          icon: Icons.child_care,
           tint: systemTint,
         );
 

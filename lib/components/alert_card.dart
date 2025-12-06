@@ -115,7 +115,7 @@ class AlertCard extends StatelessWidget {
           chipBg: Color(0xFFEAF8EE),
           chipIcon: Color(0xFF2ECC71),
           titleColor: Color(0xFF2EAF5E),
-          icon: Icons.check_circle_rounded,
+          icon: Icons.info_rounded,
         );
     }
   }
