@@ -15,6 +15,7 @@ class ReportDetailsPage extends StatelessWidget {
     required this.insights,
     required this.metrics,
     required this.combinedRisk,
+    this.reportLatencyMs,
   });
 
   final ImageProvider heroImage;
@@ -25,6 +26,7 @@ class ReportDetailsPage extends StatelessWidget {
   final List<InsightItem> insights;
   final Map<String, double> metrics;
   final String combinedRisk;
+  final int? reportLatencyMs;
 
   Color _riskColor(String level) {
     switch (level.toUpperCase()) {
@@ -125,6 +127,18 @@ class ReportDetailsPage extends StatelessWidget {
                 ),
               ],
             ),
+
+            if (reportLatencyMs != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'XAI & report generation time: ${reportLatencyMs} ms',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ],
         ),
       ),

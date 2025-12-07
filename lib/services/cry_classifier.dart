@@ -27,8 +27,9 @@ class CryResult {
   final String label;
   final double confidence;
   final List<double> rawProbs;
+  final int inferenceMs;
 
-  const CryResult(this.label, this.confidence, this.rawProbs);
+  const CryResult(this.label, this.confidence, this.rawProbs, [this.inferenceMs = 0]);
 }
 
 class CryClassifier {
@@ -81,15 +82,18 @@ class CryClassifier {
     _cryNet?.close();
   }
 
-
   // 5-SECOND VOTING PIPELINE
   Future<CryResult?> classifyLongAudio(String wavPath) async {
     if (!isLoaded) await load();
+    final stopwatch = Stopwatch()..start();
 
     // 1. Load & Parse WAV
     final bytes = await File(wavPath).readAsBytes();
     final wav = _parseWav(bytes);
-    if (wav == null || wav.pcm16 == null) return null;
+    if (wav == null || wav.pcm16 == null){
+      stopwatch.stop();
+      return null;
+    } 
 
     // 2. Convert to Float32 & Resample (Full 5 seconds)
     Float32List fullAudio = _int16ToFloat32(wav.pcm16!);
@@ -132,7 +136,9 @@ class CryClassifier {
 
     // 4. Final Aggregation
     if (validWindows == 0) {
-      return CryResult('Silent', 1.0, List.filled(labels.length, 0.0));
+      stopwatch.stop();
+      final totalMs = stopwatch.elapsedMilliseconds;
+      return CryResult('Silent', 1.0, List.filled(labels.length, 0.0), totalMs);
     }
 
     // Calculate average probabilities
@@ -150,9 +156,14 @@ class CryClassifier {
         maxIdx = k;
       }
     }
+    stopwatch.stop();
+    final totalMs = stopwatch.elapsedMilliseconds;
 
-    debugPrint("--- FINAL VERDICT: ${labels[maxIdx]} (Avg Conf: ${maxConf.toStringAsFixed(2)}) ---");
-    return CryResult(labels[maxIdx], maxConf, avgProbs);
+     debugPrint(
+      "--- FINAL VERDICT: ${labels[maxIdx]} "
+      "(Avg Conf: ${maxConf.toStringAsFixed(2)}, ${totalMs} ms) ---",
+    );
+    return CryResult(labels[maxIdx], maxConf, avgProbs, totalMs);
   }
 
   // --- PRIVATE HELPER: Classifies exactly 1 second of float data ---
@@ -163,10 +174,6 @@ class CryClassifier {
 
     // 2. Normalize
     Float32List normalized = _peakNormalize(pcm);
-    
-    // 3. Inference
-    // (Optional: save debug image for this window)
-    // await _saveDebugImage(_runPcm2RgbSafe(normalized)!, 224, 224, "debug_$debugTag");
     
     final rgb = _runPcm2RgbSafe(normalized);
     if (rgb == null) return null;

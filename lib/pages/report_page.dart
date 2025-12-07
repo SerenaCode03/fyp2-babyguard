@@ -151,6 +151,7 @@ class ReportPage extends StatelessWidget {
           insights: insights,
           metrics: metrics,
           combinedRisk: riskUpper,
+          reportLatencyMs: snap.reportLatencyMs, 
         ),
       ),
     );

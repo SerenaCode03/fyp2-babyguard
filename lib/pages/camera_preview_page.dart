@@ -54,6 +54,10 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   ExpressionResult? _lastExpressionResult;
   CryResult? _lastCryResult;
 
+  int? _poseLatencyMs;
+  int? _exprLatencyMs;
+  int? _cryLatencyMs;
+
   RiskResult? _lastRiskResult;
 
   DateTime? _poseTimestamp;
@@ -294,9 +298,13 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
     try {
       // 1) Pose classification (always)
+      final poseSw = Stopwatch()..start();
       final poseResult = await _poseClassifier.classifyFromCameraImage(image);
+      poseSw.stop();
+      final poseMs = poseSw.elapsedMilliseconds;
       // 2) Facial expression classification ONLY if MLKit sees a face
       ExpressionResult? expressionResult;
+      int? exprMs;  
       Rect? faceRectForExpr; 
 
       try {
@@ -307,12 +315,15 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
           final face = faces.first;
           final Rect faceRect = face.boundingBox;
           faceRectForExpr = faceRect;
-
+          final exprSw = Stopwatch()..start();
           expressionResult =
               await _expressionClassifier.classifyFromCameraImage(
             image,
             faceRect: faceRect,
           );
+          exprSw.stop();
+          exprMs = exprSw.elapsedMilliseconds;
+
         } else {
           debugPrint('MLKit: no face for this frame, skip expression');
         }
@@ -332,11 +343,15 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       setState(() {
         _lastPoseResult = poseResult;
         _poseTimestamp = DateTime.now();
+        _poseLatencyMs = poseMs;
 
         // Expression may be null if no face
         _lastExpressionResult = expressionResult;
         if (expressionResult != null) {
           _exprTimestamp = DateTime.now();
+          _exprLatencyMs = exprMs;   
+        }else{
+          _exprLatencyMs = null;
         }
       });
       // After updating, try risk evaluation
@@ -465,6 +480,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       setState(() {
         _lastCryResult = result;
         _cryTimestamp = DateTime.now();
+        _cryLatencyMs = result.inferenceMs;
       });
 
       debugPrint("------------------------------------------------");
@@ -654,6 +670,8 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     }) async {
     debugPrint('[XAI] Sending cached frame to backend...');
 
+    final sw = Stopwatch()..start(); 
+
     try {
       // 0) Prefer a fresh COLOR snapshot from the camera
       File? imageFile = await _captureColorSnapshot();
@@ -756,6 +774,9 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         cry: Pred(backendCryLabel),
       );
       final backendRiskLevel = backendRisk.riskLevel.toUpperCase();
+      sw.stop();
+      final int backendMs = sw.elapsedMilliseconds;
+      debugPrint("[XAI Latency] XAI & Report generation latency: ${backendMs} ms");
 
       final snapshot = AlertSnapshot(
         time: DateTime.now(),
@@ -773,6 +794,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         poseLabel: backendPoseLabel,
         expressionLabel: backendExprLabel,
         cryLabel: backendCryLabel,
+        reportLatencyMs: backendMs,
       );
 
       // ReportCenter.instance.addAlert(snapshot);
@@ -1145,10 +1167,11 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
                       style: const TextStyle(color: Colors.white),
                     ),
                     const SizedBox(height: 4),
-                    Text(
+                                        Text(
                       _lastPoseResult != null
                           ? 'Pose: ${_lastPoseResult!.label} '
                             '(${(_lastPoseResult!.confidence * 100).toStringAsFixed(1)}%)'
+                            '${_poseLatencyMs != null ? " (${_poseLatencyMs} ms)" : ""}'
                           : 'Pose: --',
                       style: const TextStyle(color: Colors.white),
                     ),
@@ -1156,7 +1179,8 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
                     Text(
                       _lastExpressionResult != null
                           ? 'Expression: ${_lastExpressionResult!.label} '
-                            '(${(_lastExpressionResult!.confidence * 100).toStringAsFixed(1)}%)'
+                          '(${(_lastExpressionResult!.confidence * 100).toStringAsFixed(1)}%)'
+                            '${_exprLatencyMs != null ? " (${_exprLatencyMs} ms)" : ""}'
                           : 'Expression: (no face)',
                       style: const TextStyle(color: Colors.white),
                     ),
@@ -1165,6 +1189,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
                       _lastCryResult != null
                           ? 'Cry: ${_lastCryResult!.label} '
                             '(${(_lastCryResult!.confidence * 100).toStringAsFixed(1)}%)'
+                            '${_cryLatencyMs != null ? " (${_cryLatencyMs} ms)" : ""}'
                           : 'Cry: --',
                       style: const TextStyle(color: Colors.white),
                     ),

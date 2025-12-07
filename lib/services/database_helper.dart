@@ -58,7 +58,9 @@ class DatabaseHelper {
         expressionLabel TEXT,             
         expressionConfidence REAL,        
         cryLabel TEXT,                    
-        cryConfidence REAL,               
+        cryConfidence REAL,
+
+        reportLatencyMs INTEGER,               
 
         FOREIGN KEY (userId) REFERENCES users(id)
       );

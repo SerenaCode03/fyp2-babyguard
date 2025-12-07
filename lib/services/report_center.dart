@@ -46,6 +46,8 @@ class AlertSnapshot {
   final List<StoredInsight>? storedInsights;
   final Map<String, double>? storedMetrics;
 
+  final int? reportLatencyMs;
+
   AlertSnapshot({
     required this.time,
     required this.riskLevel,
@@ -59,6 +61,7 @@ class AlertSnapshot {
     required this.cryLabel,
     this.storedInsights,
     this.storedMetrics,
+    this.reportLatencyMs,
   });
 }
 
@@ -121,6 +124,7 @@ class ReportCenter {
     'expressionConfidence': snapshot.expressionXai?.confidence,
     'cryLabel': snapshot.cryLabel.isNotEmpty ? snapshot.cryLabel : null,
     'cryConfidence': snapshot.cryXai?.confidence,
+    'reportLatencyMs': snapshot.reportLatencyMs,
   });
 
     // 2) Save Grad-CAM overlays to files (if available)
@@ -188,12 +192,13 @@ class ReportCenter {
         poseXai: snapshot.poseXai,
         expressionXai: snapshot.expressionXai,
         cryXai: snapshot.cryXai,
-        originalFrameFile: persistedFrameFile, // 👈 keep in sync
+        originalFrameFile: persistedFrameFile, 
         poseLabel: snapshot.poseLabel,
         expressionLabel: snapshot.expressionLabel,
         cryLabel: snapshot.cryLabel,
         storedInsights: snapshot.storedInsights,
         storedMetrics: snapshot.storedMetrics,
+        reportLatencyMs: snapshot.reportLatencyMs, 
       ),
     );
     _alerts.value = list;
@@ -281,6 +286,7 @@ class ReportCenter {
         cryLabel: cryLabel,
         storedInsights: storedInsights,
         storedMetrics: metrics.isEmpty ? null : metrics,
+        reportLatencyMs: row['reportLatencyMs'] as int?,
       );
 
       loaded.add(snap);
