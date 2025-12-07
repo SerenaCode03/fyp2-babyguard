@@ -81,97 +81,8 @@ class CryClassifier {
     _cryNet?.close();
   }
 
-  // ===========================================================================
-  // MAIN PIPELINE
-  // ===========================================================================
-  
-  // Future<CryResult?> classifyFromWavFile(String wavPath) async {
-  //   if (!isLoaded) await load();
 
-  //   // 1. Read WAV
-  //   final bytes = await File(wavPath).readAsBytes();
-  //   if (bytes.length < 44) return null;
-
-  //   final wav = _parseWav(bytes);
-  //   if (wav == null || wav.pcm16 == null) {
-  //     debugPrint("[CryClassifier] Invalid WAV");
-  //     return null;
-  //   }
-
-  //   // 2. Convert Int16 -> Float32 (Full Buffer)
-  //   // We convert the whole thing first, before cropping
-  //   Float32List rawFloat = Float32List(wav.pcm16!.length);
-  //   for(int i=0; i<wav.pcm16!.length; i++) {
-  //     rawFloat[i] = wav.pcm16![i] / 32768.0;
-  //   }
-
-  //   // 3. RESAMPLING (The Fix for "Demon Voice")
-  //   // If phone recorded at 44100, we must convert to 16000
-  //   Float32List resampledFloat;
-  //   if (wav.sampleRate != sampleRate) {
-  //     debugPrint("[CryClassifier] ⚠️ Resampling ${wav.sampleRate}Hz -> ${sampleRate}Hz");
-  //     resampledFloat = _resample(rawFloat, wav.sampleRate, sampleRate);
-  //   } else {
-  //     resampledFloat = rawFloat;
-  //   }
-
-  //   // 4. Fit to 1 Second (16000 samples)
-  //   Float32List floatPcm = _fit1D(resampledFloat, numSamples);
-
-  //   // 5. SILENCE CHECK
-  //   final rms = _computeRms(floatPcm);
-  //   debugPrint("[CryClassifier] Audio RMS: ${rms.toStringAsFixed(5)}");
-
-  //   if (rms < rmsSilence) {
-  //     debugPrint("[CryClassifier] Silence detected. Skipping.");
-  //     return CryResult('Silent', 1.0, List.filled(labels.length, 0.0));
-  //   }
-
-  //   // 6. PEAK NORMALIZATION
-  //   debugPrint("[CryClassifier] Applying Peak Normalization...");
-  //   floatPcm = _peakNormalize(floatPcm);
-    
-  //   // Save Playable WAV for debugging
-  //   await saveDebugAudio(floatPcm);
-
-  //   // 7. PCM -> RGB
-  //   debugPrint("[CryClassifier] Running pcm2rgb...");
-  //   final rgbFlat = _runPcm2RgbSafe(floatPcm); 
-  //   if (rgbFlat == null) return null;
-
-  //   // Check Max Value
-  //   double maxVal = 0.0;
-  //   for (var v in rgbFlat) if (v > maxVal) maxVal = v;
-    
-  //   // Normalize RGB if needed (0..255 -> 0..1)
-  //   if (maxVal > 1.05) {
-  //     debugPrint("[CryClassifier] Normalizing RGB...");
-  //     for (int i = 0; i < rgbFlat.length; i++) rgbFlat[i] /= 255.0;
-  //   }
-
-  //   await _saveDebugImage(rgbFlat, 224, 224, "1_spectrogram_raw");
-
-  //   // 8. RGB -> GRAYSCALE
-  //   final gray3Flat = _rgbToGray3NHWC(rgbFlat, 224, 224);
-
-  //   await _saveDebugImage(gray3Flat, 224, 224, "2_resnet_input");
-
-  //   // 9. CLASSIFIER
-  //   debugPrint("[CryClassifier] Running classifier...");
-  //   final scores = _runCryClassifierSafe(gray3Flat);
-  //   if (scores == null) return null;
-
-  //   final probs = _softmax(scores);
-  //   final idx = _argmax(probs);
-    
-  //   debugPrint("[CryClassifier] Prediction: ${labels[idx]} (${probs[idx].toStringAsFixed(2)})");
-  //   return CryResult(labels[idx], probs[idx], probs);
-  // }
-
-  // ===========================================================================
   // 5-SECOND VOTING PIPELINE
-  // ===========================================================================
-
   Future<CryResult?> classifyLongAudio(String wavPath) async {
     if (!isLoaded) await load();
 
@@ -281,10 +192,7 @@ class CryClassifier {
     return f;
   }
 
-  // ===========================================================================
   // HELPERS (Resample, Fit, Math)
-  // ===========================================================================
-
   /// Linear Interpolation Resampler (Fixes sample rate mismatch)
   Float32List _resample(Float32List input, int oldRate, int newRate) {
     if (oldRate == newRate) return input;
@@ -336,10 +244,7 @@ class CryClassifier {
     return out;
   }
 
-  // ===========================================================================
   // TFLITE SAFE METHODS
-  // ===========================================================================
-
   Float32List? _runPcm2RgbSafe(Float32List pcm) {
     if (_pcm2rgb == null) return null;
     final inputObj = [pcm.toList()];
@@ -386,10 +291,7 @@ class CryClassifier {
     return outDest[0];
   }
 
-  // ===========================================================================
   // IMAGE & AUDIO SAVING (Debug)
-  // ===========================================================================
-
   /// Save processed audio as a PLAYABLE WAV file
   Future<void> saveDebugAudio(Float32List pcm) async {
     try {
@@ -473,10 +375,7 @@ class CryClassifier {
     } catch (e) { debugPrint("Img save err: $e"); }
   }
 
-  // ===========================================================================
   // MATH & PARSING
-  // ===========================================================================
-
   Float32List _rgbToGray3NHWC(Float32List rgb, int H, int W) {
     const rW = 0.2989;
     const gW = 0.5870;

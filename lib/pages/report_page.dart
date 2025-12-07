@@ -34,27 +34,11 @@ class ReportPage extends StatelessWidget {
                 );
               }
 
-              final today = DateTime.now();
+              final now = DateTime.now();
 
               return ListView(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                children: [
-                  _DateHeader(date: today),
-                  const SizedBox(height: 12),
-                  ...alerts.map(
-                    (snap) => Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: AlertCard(
-                        alert: AlertItem(
-                          level: _mapAlertLevel(snap.riskLevel),
-                          title: _titleForRiskLevel(snap.riskLevel),
-                          time: snap.time,
-                          onTap: () => _openDetails(context, snap),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                children: _buildAlertList(alerts, now, context),
               );
             },
           ),
@@ -87,7 +71,7 @@ class ReportPage extends StatelessWidget {
     }
   }
 
- void _openDetails(BuildContext context, AlertSnapshot snap) {
+  void _openDetails(BuildContext context, AlertSnapshot snap) {
     final insights = <InsightItem>[];
     final metrics = <String, double>{};
 
@@ -133,7 +117,6 @@ class ReportPage extends StatelessWidget {
       if (snap.cryXai != null) {
         metrics['Cry: ${snap.cryLabel}'] = snap.cryXai!.confidence;
       }
-
     } else {
       // CASE 2: Loaded from database
       if (snap.storedInsights != null) {
@@ -171,8 +154,7 @@ class ReportPage extends StatelessWidget {
         ),
       ),
     );
-    }
-
+  }
 
   String _formatTime(DateTime dt) {
     final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
@@ -180,18 +162,58 @@ class ReportPage extends StatelessWidget {
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
     return '$h:$m $ampm';
   }
+
+  List<Widget> _buildAlertList(
+    List<AlertSnapshot> alerts,
+    DateTime now,
+    BuildContext context,
+  ) {
+    final List<Widget> children = [];
+    DateTime? currentGroupDate;
+
+    for (final snap in alerts) {
+      final dateOfAlert = _dateOnly(snap.time);
+
+      // New date group → add header
+      if (currentGroupDate == null ||
+          !_isSameCalendarDay(dateOfAlert, currentGroupDate!)) {
+        currentGroupDate = dateOfAlert;
+        children.add(_DateHeader(date: dateOfAlert, now: now));
+        children.add(const SizedBox(height: 12));
+      }
+
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: AlertCard(
+            alert: AlertItem(
+              level: _mapAlertLevel(snap.riskLevel),
+              title: _titleForRiskLevel(snap.riskLevel),
+              time: snap.time,
+              onTap: () => _openDetails(context, snap),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return children;
+  }
 }
 
 class _DateHeader extends StatelessWidget {
-  final DateTime date;
-  const _DateHeader({required this.date});
+  final DateTime date; // group date (midnight)
+  final DateTime now;
+
+  const _DateHeader({
+    required this.date,
+    required this.now,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final mm = date.month.toString().padLeft(2, '0');
-    final dd = date.day.toString().padLeft(2, '0');
     return Text(
-      'TODAY $mm/$dd',
+      _fmt(date),
       style: const TextStyle(
         color: black,
         fontSize: 14,
@@ -200,4 +222,28 @@ class _DateHeader extends StatelessWidget {
       ),
     );
   }
+
+  String _fmt(DateTime d) {
+    final mm = d.month.toString().padLeft(2, '0');
+    final dd = d.day.toString().padLeft(2, '0');
+
+    final today = _dateOnly(now);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    if (_isSameCalendarDay(d, today)) {
+      return 'TODAY $mm/$dd';
+    } else if (_isSameCalendarDay(d, yesterday)) {
+      return 'YESTERDAY $mm/$dd';
+    } else {
+      return '$mm/$dd';
+    }
+  }
+}
+
+bool _isSameCalendarDay(DateTime a, DateTime b) {
+  return a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+DateTime _dateOnly(DateTime dt) {
+  return DateTime(dt.year, dt.month, dt.day);
 }

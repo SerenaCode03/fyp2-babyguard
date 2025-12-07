@@ -266,7 +266,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     });
   }
 
-  // ---- Stream camera frames, keep the latest ----
+  // Stream camera frames, keep the latest
   void _startImageStream() {
     if (widget.controller.value.isStreamingImages) return;
 
@@ -275,7 +275,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     });
   }
 
-  // ---- Run pose + expression every 5 seconds once pipelineRunning ----
+  // Run pose + expression every 5 seconds once pipelineRunning
   void _startPoseTimer() {
     _poseTimer?.cancel();
     _poseTimer = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -443,7 +443,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
     try {
       // 1. Load WAV from assets
-      final byteData = await rootBundle.load('assets/pain_1s_4.wav');
+      final byteData = await rootBundle.load('assets/asphyxia_63.wav');
 
       // 2. Write to temp file
       final dir = await getTemporaryDirectory();
@@ -525,10 +525,10 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       case 'HIGH':
         return const Duration(seconds: 30);
       case 'MODERATE':
-        return const Duration(minutes: 2);
+        return const Duration(seconds: 30);
       case 'LOW':
       default:
-        return const Duration(minutes: 5);
+        return const Duration(seconds: 30);
     }
   }
 
@@ -560,7 +560,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     final now = DateTime.now();
     final int currentUserId = SessionManager.currentUserId!;
 
-    // ------------------------- SLEEP -------------------------
+    // SLEEP 
     final bool sleepAbnormal =
         sleepLabel == 'Abnormal' ||
         sleepLabel == 'Prone' ||
@@ -576,7 +576,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       _lastNotifiedSleepLabel = sleepLabel;
     }
 
-    // ------------------------- EXPRESSION -------------------------
+    // EXPRESSION 
     final bool exprAbnormal =
         exprLabel == 'Distressed' ||
         exprLabel == 'Crying' ||
@@ -592,7 +592,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       _lastNotifiedExprLabel = exprLabel;
     }
 
-    // ------------------------- CRY -------------------------
+    // CRY 
     final bool cryAbnormal = cryLabel != 'Silent' && cryLabel != 'Normal';
 
     if (cryAbnormal && cryLabel != _lastNotifiedCryLabel) {
@@ -744,12 +744,12 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         // _lastCryXai is updated via _sendCryXai / injection when used
       });
 
-      // ---------- BACKEND LABELS ----------
+      // BACKEND LABELS 
       final String backendPoseLabel = poseXai.label;
       final String backendExprLabel = exprXai?.label ?? exprLabel;
       final String backendCryLabel = _lastCryXai?.label ?? cryLabel;
 
-      // ---------- BACKEND-BASED RISK FUSION ----------
+      // BACKEND-BASED RISK FUSION
       final backendRisk = evaluateRisk(
         sleeping: Pred(backendPoseLabel),
         expression: Pred(backendExprLabel),
@@ -794,7 +794,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
   Future<File?> _captureColorSnapshot() async {
     try {
-      // Don’t double-call
       if (widget.controller.value.isTakingPicture) {
         return null;
       }
@@ -948,7 +947,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     return risk;
   }
 
-  // ---- MLKit helpers: CameraImage -> InputImage ----
+  // MLKit helpers: CameraImage -> InputImage 
   mlkit.InputImage _inputImageFromCameraImage(CameraImage image) {
     final bytes = _concatenatePlanes(image.planes);
 

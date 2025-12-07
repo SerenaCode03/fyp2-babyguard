@@ -33,18 +33,8 @@ class NotificationPage extends StatelessWidget {
                     );
                   }
                   return ListView(
-                    padding: const EdgeInsets.fromLTRB(16,16,16,16),
-                    children: [
-                      _DateHeader(date: now),
-                      const SizedBox(height: 12),
-
-                      ...items.map(
-                        (n) => Padding(
-                          padding: const EdgeInsets.only(bottom: 14),
-                          child: NotificationCard(item: n),
-                        ),
-                      ),
-                    ],
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                    children: _buildNotificationList(items, now),
                   );
                 },
               ),
@@ -56,9 +46,45 @@ class NotificationPage extends StatelessWidget {
   }
 }
 
+List<Widget> _buildNotificationList(
+  List<NotificationItem> items,
+  DateTime now,
+) {
+  final List<Widget> children = [];
+  DateTime? currentGroupDate;
+
+  for (final n in items) {
+    // Use only Y/M/D, ignore time of day
+    final dateOfItem = _dateOnly(n.time);
+
+    if (currentGroupDate == null ||
+        !_isSameCalendarDay(dateOfItem, currentGroupDate!)) {
+      // New date group → add a header
+      currentGroupDate = dateOfItem;
+      children.add(_DateHeader(date: dateOfItem, now: now));
+      children.add(const SizedBox(height: 12));
+    }
+
+    children.add(
+      Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: NotificationCard(item: n),
+      ),
+    );
+  }
+
+  return children;
+}
+
+
 class _DateHeader extends StatelessWidget {
-  final DateTime date;
-  const _DateHeader({required this.date});
+  final DateTime date;   // this is the date of the group
+  final DateTime now;    // current time so we can compare
+
+  const _DateHeader({
+    required this.date,
+    required this.now,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -76,7 +102,25 @@ class _DateHeader extends StatelessWidget {
   String _fmt(DateTime d) {
     final mm = d.month.toString().padLeft(2, '0');
     final dd = d.day.toString().padLeft(2, '0');
-    return 'TODAY $mm/$dd';
+
+    final today = _dateOnly(now);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    if (_isSameCalendarDay(d, today)) {
+      return 'TODAY $mm/$dd';
+    } else if (_isSameCalendarDay(d, yesterday)) {
+      return 'YESTERDAY $mm/$dd';
+    } else {
+      return '$mm/$dd';
+    }
   }
 }
 
+
+bool _isSameCalendarDay(DateTime a, DateTime b) {
+  return a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+DateTime _dateOnly(DateTime dt) {
+  return DateTime(dt.year, dt.month, dt.day);
+}

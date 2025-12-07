@@ -94,28 +94,34 @@ class ReportCenter {
 
   // SAVE: DB-backed save (called from CameraPreviewPage)
   Future<void> addAlertAndPersist({
-    required int userId,
-    required AlertSnapshot snapshot,
-  }) async {
-    final db = await DatabaseHelper.instance.database;
+  required int userId,
+  required AlertSnapshot snapshot,
+}) async {
+  final db = await DatabaseHelper.instance.database;
 
-    // 1) Insert main report row
-    final reportId = await db.insert('reports', {
-      'userId': userId,
-      'timestamp': snapshot.time.toIso8601String(),
-      'riskLevel': snapshot.riskLevel,        // e.g. "HIGH"
-      'alertTitle': 'BabyGuard Alert',
-      'alertMessage': snapshot.summary,
-      'snapshotPath': snapshot.originalFrameFile.path,
-      'poseLabel': snapshot.poseLabel,
-      'poseConfidence': snapshot.poseXai?.confidence,
-      'expressionLabel':
-          snapshot.expressionLabel.isNotEmpty ? snapshot.expressionLabel : null,
-      'expressionConfidence': snapshot.expressionXai?.confidence,
-      'cryLabel':
-          snapshot.cryLabel.isNotEmpty ? snapshot.cryLabel : null,
-      'cryConfidence': snapshot.cryXai?.confidence,
-    });
+  // 0) Persist the hero frame into app documents dir
+  final docsDir = await getApplicationDocumentsDirectory();
+  final ts = snapshot.time.millisecondsSinceEpoch;
+  final persistedFrameFile = await snapshot.originalFrameFile.copy(
+    '${docsDir.path}/frame_$ts.png',
+  );
+
+  // 1) Insert main report row using the *persisted* path
+  final reportId = await db.insert('reports', {
+    'userId': userId,
+    'timestamp': snapshot.time.toIso8601String(),
+    'riskLevel': snapshot.riskLevel,
+    'alertTitle': 'BabyGuard Alert',
+    'alertMessage': snapshot.summary,
+    'snapshotPath': persistedFrameFile.path,  
+    'poseLabel': snapshot.poseLabel,
+    'poseConfidence': snapshot.poseXai?.confidence,
+    'expressionLabel':
+        snapshot.expressionLabel.isNotEmpty ? snapshot.expressionLabel : null,
+    'expressionConfidence': snapshot.expressionXai?.confidence,
+    'cryLabel': snapshot.cryLabel.isNotEmpty ? snapshot.cryLabel : null,
+    'cryConfidence': snapshot.cryXai?.confidence,
+  });
 
     // 2) Save Grad-CAM overlays to files (if available)
     String? poseOverlayPath;
@@ -173,7 +179,23 @@ class ReportCenter {
 
     // 4) Update in-memory list so UI refreshes immediately
     final list = List<AlertSnapshot>.from(_alerts.value);
-    list.insert(0, snapshot);
+    list.insert(
+      0,
+      AlertSnapshot(
+        time: snapshot.time,
+        riskLevel: snapshot.riskLevel,
+        summary: snapshot.summary,
+        poseXai: snapshot.poseXai,
+        expressionXai: snapshot.expressionXai,
+        cryXai: snapshot.cryXai,
+        originalFrameFile: persistedFrameFile, // 👈 keep in sync
+        poseLabel: snapshot.poseLabel,
+        expressionLabel: snapshot.expressionLabel,
+        cryLabel: snapshot.cryLabel,
+        storedInsights: snapshot.storedInsights,
+        storedMetrics: snapshot.storedMetrics,
+      ),
+    );
     _alerts.value = list;
   }
 
@@ -228,11 +250,23 @@ class ReportCenter {
       }
 
       final snapshotPath = row['snapshotPath'] as String?;
-      // Fallback: if snapshotPath is null, use the first insight imagePath
-      final frameFile = File(
-        snapshotPath ??
-            (storedInsights.isNotEmpty ? storedInsights.first.imagePath : ''),
-      );
+      File frameFile;
+
+      if (snapshotPath != null && snapshotPath.isNotEmpty) {
+        final candidate = File(snapshotPath);
+        if (await candidate.exists()) {
+          frameFile = candidate;
+        } else if (storedInsights.isNotEmpty) {
+          frameFile = File(storedInsights.first.imagePath);
+        } else {
+          frameFile = File(''); // or handle with placeholder in UI
+        }
+      } else if (storedInsights.isNotEmpty) {
+        frameFile = File(storedInsights.first.imagePath);
+      } else {
+        frameFile = File('');
+      }
+
 
       final snap = AlertSnapshot(
         time: DateTime.parse(row['timestamp'] as String),
