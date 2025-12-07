@@ -19,6 +19,7 @@ import 'package:fyp2_babyguard/services/notification_center.dart';
 import 'package:fyp2_babyguard/services/session_manager.dart';
 import 'package:fyp2_babyguard/services/report_center.dart';
 import '../services/email_alert_service.dart';
+import '../services/cry_injection_manager.dart';
 
 class CameraPreviewPage extends StatefulWidget {
   final CameraController controller;
@@ -451,24 +452,23 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     }
   }
 
-  Future<void> _runInjectionTest() async {
-    debugPrint("STARTING FILE INJECTION TEST");
+  Future<void> _runInjectionTest(CryTestType type) async {
+    debugPrint("STARTING FILE INJECTION TEST for ${type.displayName}");
 
     File? tempFile;
 
     try {
-      // 1. Load WAV from assets
-      final byteData = await rootBundle.load('assets/asphyxia_63.wav');
+      // 1. Get temp WAV from manager
+      tempFile = await CryInjectionManager.instance.materializeToTempFile(type);
+      if (tempFile == null) {
+        debugPrint("[Injection] Failed to materialize test WAV for ${type.name}");
+        return;
+      }
 
-      // 2. Write to temp file
-      final dir = await getTemporaryDirectory();
-      tempFile = File('${dir.path}/temp_injection_test.wav');
-      await tempFile.writeAsBytes(byteData.buffer.asUint8List());
-
-      debugPrint("Loaded injection file (${byteData.lengthInBytes} bytes)");
+      debugPrint("Loaded injection file: ${tempFile.path}");
       debugPrint("Feeding to CryClassifier...");
 
-      // 3. Run LOCAL classifier
+      // 2. Run LOCAL classifier
       final result = await _cryClassifier.classifyLongAudio(tempFile.path);
       if (!mounted) return;
 
@@ -484,17 +484,16 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       });
 
       debugPrint("------------------------------------------------");
-      debugPrint("LOCAL CRY RESULT: ${result.label}");
+      debugPrint("LOCAL CRY RESULT (${type.displayName}): ${result.label}");
       debugPrint(
         "Confidence: ${(result.confidence * 100).toStringAsFixed(1)}%",
       );
       debugPrint("All Probs: ${result.rawProbs}");
       debugPrint("------------------------------------------------");
 
-      // Optional: still feed into your voting logic if you want
       _updateAsphyxiaVotes(result);
 
-      // 4. Backend cry XAI FIRST -> keep _lastCryXai fresh
+      // 3. Backend cry XAI
       try {
         final cryXai = await _xaiService.predictCry(tempFile);
         if (!mounted) return;
@@ -511,10 +510,8 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         debugPrint("[XAI] Cry injection error: $e");
       }
 
-      // 5. Now evaluate risk (this may call _sendXaiRequest, which
-      //    will store pose + expression + _lastCryXai into ReportCenter)
+      // 4. Evaluate risk & maybe send full XAI snapshot
       final risk = _evaluateAndMaybeSendXAI();
-
       if (risk == null) {
         debugPrint("[XAI] Risk is null; no snapshot will be saved.");
       } else {
@@ -527,7 +524,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     } catch (e) {
       debugPrint("INJECTION ERROR: $e");
     } finally {
-      // Clean up temp file
       if (tempFile != null) {
         try {
           await tempFile.delete();
@@ -1219,16 +1215,49 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
               ),
             ),
             Positioned(
-            top: 50,
-            right: 20,
-            child: FloatingActionButton.small(
-              backgroundColor: Colors.white,
-              child: const Icon(Icons.bug_report, color: Colors.black),
-              onPressed: () {
-                _runInjectionTest();
-              },
+              top: 50,
+              right: 20,
+              child: FloatingActionButton.small(
+                backgroundColor: Colors.white,
+                child: const Icon(Icons.bug_report, color: Colors.black),
+                onPressed: () async {
+                  // Find the overlay (used by showMenu for positioning)
+                  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+
+                  final selectedType = await showMenu<CryTestType>(
+                    context: context,
+                    position: RelativeRect.fromLTRB(
+                      overlay.size.width - 160, // x-position from left
+                      80,                        // y-position from top
+                      16,                        // from right
+                      0,
+                    ),
+                    items: [
+                      const PopupMenuItem<CryTestType>(
+                        value: CryTestType.asphyxia,
+                        child: Text('Inject Asphyxia cry'),
+                      ),
+                      const PopupMenuItem<CryTestType>(
+                        value: CryTestType.hungry,
+                        child: Text('Inject Hungry cry'),
+                      ),
+                      const PopupMenuItem<CryTestType>(
+                        value: CryTestType.normal,
+                        child: Text('Inject Normal cry'),
+                      ),
+                      const PopupMenuItem<CryTestType>(
+                        value: CryTestType.pain,
+                        child: Text('Inject Pain cry'),
+                      ),
+                    ],
+                  );
+
+                  if (selectedType != null) {
+                    _runInjectionTest(selectedType);
+                  }
+                },
+              ),
             ),
-          ),
           ],
         ),
       ),
