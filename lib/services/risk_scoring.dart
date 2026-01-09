@@ -17,8 +17,6 @@ class RiskResult {
   });
 }
 
-//Scoring tables
-
 // Sleeping position scoring
 int _scoreSleeping(String label) {
   switch (label) {
@@ -60,7 +58,6 @@ int _scoreCry(String label) {
   }
 }
 
-//Total scoring + decision
 RiskResult evaluateRisk({
   required Pred sleeping,
   required Pred expression,
@@ -82,10 +79,9 @@ RiskResult evaluateRisk({
     action = "Monitor and notify";
   } else {
     level = "Low";
-    action = "No action required";
+    action = "Notify";
   }
 
-  // Gate: only send to cloud if total >= 1 (your requirement)
   final sendToCloud = total >= 1;
 
   return RiskResult(

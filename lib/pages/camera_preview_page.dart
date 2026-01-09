@@ -291,8 +291,14 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   }
 
   Future<void> _runMainPipeline() async {
-    if (_isProcessing) return;
-    if (_latestImage == null) return;
+    if (_isProcessing) {
+      debugPrint('[PIPE] Skip: previous frame still processing');
+      return;
+    }
+    if (_latestImage == null) {
+      debugPrint('[PIPE] Skip: latestImage is null');
+      return;
+    }
 
     _isProcessing = true;
     final image = _latestImage!;
@@ -453,22 +459,14 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   }
 
   Future<void> _runInjectionTest(CryTestType type) async {
-    debugPrint("STARTING FILE INJECTION TEST for ${type.displayName}");
-
     File? tempFile;
-
     try {
-      // 1. Get temp WAV from manager
       tempFile = await CryInjectionManager.instance.materializeToTempFile(type);
       if (tempFile == null) {
         debugPrint("[Injection] Failed to materialize test WAV for ${type.name}");
         return;
       }
 
-      debugPrint("Loaded injection file: ${tempFile.path}");
-      debugPrint("Feeding to CryClassifier...");
-
-      // 2. Run LOCAL classifier
       final result = await _cryClassifier.classifyLongAudio(tempFile.path);
       if (!mounted) return;
 
@@ -483,17 +481,8 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         _cryLatencyMs = result.inferenceMs;
       });
 
-      debugPrint("------------------------------------------------");
-      debugPrint("LOCAL CRY RESULT (${type.displayName}): ${result.label}");
-      debugPrint(
-        "Confidence: ${(result.confidence * 100).toStringAsFixed(1)}%",
-      );
-      debugPrint("All Probs: ${result.rawProbs}");
-      debugPrint("------------------------------------------------");
-
       _updateAsphyxiaVotes(result);
 
-      // 3. Backend cry XAI
       try {
         final cryXai = await _xaiService.predictCry(tempFile);
         if (!mounted) return;
@@ -510,7 +499,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         debugPrint("[XAI] Cry injection error: $e");
       }
 
-      // 4. Evaluate risk & maybe send full XAI snapshot
       final risk = _evaluateAndMaybeSendXAI();
       if (risk == null) {
         debugPrint("[XAI] Risk is null; no snapshot will be saved.");
@@ -840,9 +828,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
   RiskResult? _evaluateAndMaybeSendXAI() {
     final now = DateTime.now();
-    debugPrint('[Risk] ENTER evaluateAndMaybeSendXAI at $now');
 
-    // --- 1) Decide which labels to use based on freshness ---
     String sleepLabel = 'Normal';
     if (_lastPoseResult != null &&
         _poseTimestamp != null &&
@@ -864,14 +850,9 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       cryLabel = _lastCryResult!.label;
     }
 
-    debugPrint('[Risk] Using labels -> '
-        'sleep=$sleepLabel, expr=$exprLabel, cry=$cryLabel');
-
-    // If literally everything is baseline, skip
     if (sleepLabel == 'Normal' &&
         exprLabel == 'Normal' &&
         cryLabel == 'Silent') {
-      debugPrint('[Risk] All baseline (Normal/Normal/Silent), skipping.');
       return null;
     }
 
@@ -881,7 +862,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       cryLabel: cryLabel,
     );
 
-    // --- 2) Evaluate risk ---
     final risk = evaluateRisk(
       sleeping: Pred(sleepLabel),
       expression: Pred(exprLabel),
@@ -900,39 +880,23 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     );
 
     if (risk.totalScore <= 0) {
-      debugPrint('[Risk] totalScore <= 0, no further action.');
-
-      // Optional: reset cloud cache so the NEXT non-zero episode will definitely trigger XAI again:
       _lastCloudSleepLabel = null;
       _lastCloudExprLabel = null;
       _lastCloudCryLabel = null;
       _lastCloudRiskLevel = null;
-
       return risk;
     }
 
-    // --- 3) Decide whether to call XAI backend ---
     if (risk.shouldSendToCloud) {
       final bool labelsChanged =
           sleepLabel != _lastCloudSleepLabel ||
           exprLabel != _lastCloudExprLabel ||
           cryLabel != _lastCloudCryLabel ||
           risk.riskLevel != _lastCloudRiskLevel;
-
       if (!labelsChanged) {
-        debugPrint(
-          '[Risk] shouldSendToCloud=true but '
-          'labels/risk unchanged; skip XAI to avoid spam.',
-        );
         return risk;
       }
 
-      debugPrint(
-        '[Risk] shouldSendToCloud = true AND '
-        'labels or risk level changed, calling XAI backend.',
-      );
-
-      // Update “last cloud state” BEFORE calling backend
       _lastCloudSleepLabel = sleepLabel;
       _lastCloudExprLabel = exprLabel;
       _lastCloudCryLabel = cryLabel;
@@ -944,8 +908,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         cryLabel: cryLabel,
         riskLevel: risk.riskLevel,
       );
-
-      // Fire-and-forget email (don’t block UI)
       EmailAlertService.instance.sendRiskEmail(
         riskLevel: risk.riskLevel,
         sleepLabel: sleepLabel,
@@ -953,7 +915,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         cryLabel: cryLabel,
         summary: summaryText,
       );
-
       _sendXaiRequest(
         risk: risk,
         sleepLabel: sleepLabel,

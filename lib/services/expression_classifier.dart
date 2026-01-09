@@ -26,10 +26,7 @@ class ExpressionResult {
 }
 
 class ExpressionClassifier {
-  static const String modelPath =
-      'assets/models/mobilenetv3_fp16.tflite';
-
-  // Change to match your model's class order
+  static const String modelPath = 'assets/models/mobilenetv3_fp16.tflite';
   static const List<String> labels = [
     'Distressed',
     'Normal'
@@ -52,98 +49,76 @@ class ExpressionClassifier {
     _interpreter = null;
   }
 
-  /// If [faceRect] is provided: crop that region and send to model.
-  /// If null: fallback to center-square crop.
   Future<ExpressionResult?> classifyFromCameraImage(
-  CameraImage image, {
-  required Rect faceRect,   // now REQUIRED
-}) async {
-  if (_interpreter == null) {
-    throw StateError('ExpressionClassifier: loadModel() first.');
-  }
+    CameraImage image, {
+    required Rect faceRect, 
+  }) async {
+    if (_interpreter == null) {
+      throw StateError('ExpressionClassifier: loadModel() first.');
+    }
 
-  // 1) Convert YUV → RGB
-  final rgbImage = _yuv420ToRgb(image);
+    final rgbImage = _yuv420ToRgb(image);
+    final paddedRect = _expandRect(faceRect, rgbImage.width, rgbImage.height, paddingRatio: 0.45);
+    final faceCrop = _cropRect(rgbImage, paddedRect);
+    final squareFace = _centerCropSquare(faceCrop);
 
-  // 2) Expand bounding box
-  final paddedRect =
-      _expandRect(faceRect, rgbImage.width, rgbImage.height, paddingRatio: 0.45);
+    saveDebugFace(squareFace);
+    const inputSize = 224;
+    final resized = img.copyResize(
+      squareFace,
+      width: inputSize,
+      height: inputSize,
+      interpolation: img.Interpolation.linear,
+    );
 
-  // 3) Crop region
-  final faceCrop = _cropRect(rgbImage, paddedRect);
-
-  // 4) Re-square (important!)
-  final squareFace = _centerCropSquare(faceCrop);
-
-  // 5) Save debug
-  saveDebugFace(squareFace);
-
-  // 6) Resize to 224×224
-  const inputSize = 224;
-  final resized = img.copyResize(
-    squareFace,
-    width: inputSize,
-    height: inputSize,
-    interpolation: img.Interpolation.linear,
-  );
-
-  // 7) Build input tensor
-  final input = List.generate(
-    1,
-    (_) => List.generate(
-      inputSize,
+    final input = List.generate(
+      1,
       (_) => List.generate(
         inputSize,
-        (_) => List.filled(3, 0.0),   // correct shape
+        (_) => List.generate(
+          inputSize,
+          (_) => List.filled(3, 0.0),  
+        ),
       ),
-    ),
-  );
+    );
 
-  const meanR = 0.485;
-  const meanG = 0.456;
-  const meanB = 0.406;
+    const meanR = 0.485;
+    const meanG = 0.456;
+    const meanB = 0.406;
 
-  const stdR = 0.229;
-  const stdG = 0.224;
-  const stdB = 0.225;
+    const stdR = 0.229;
+    const stdG = 0.224;
+    const stdB = 0.225;
 
-  for (int y = 0; y < inputSize; y++) {
-    for (int x = 0; x < inputSize; x++) {
-      final pixel = resized.getPixel(x, y);
+    for (int y = 0; y < inputSize; y++) {
+      for (int x = 0; x < inputSize; x++) {
+        final pixel = resized.getPixel(x, y);
 
-      final r = pixel.r / 255.0;
-      final g = pixel.g / 255.0;
-      final b = pixel.b / 255.0;
+        final r = pixel.r / 255.0;
+        final g = pixel.g / 255.0;
+        final b = pixel.b / 255.0;
 
-      input[0][y][x][0] = (r - meanR) / stdR;
-      input[0][y][x][1] = (g - meanG) / stdG;
-      input[0][y][x][2] = (b - meanB) / stdB;
+        input[0][y][x][0] = (r - meanR) / stdR;
+        input[0][y][x][1] = (g - meanG) / stdG;
+        input[0][y][x][2] = (b - meanB) / stdB;
+      }
     }
+
+    final output = List.generate(1, (_) => List.filled(labels.length, 0.0));
+    _interpreter!.run(input, output);
+    final probs = _softmax(output[0]);
+    final double distressedProb = probs[0];
+    final double normalProb = probs[1];
+
+    final label = distressedProb >= 0.50 ? 'Distressed' : 'Normal';
+    final confidence = label == 'Distressed' ? distressedProb : normalProb;
+
+    return ExpressionResult(
+      label: label,
+      confidence: confidence,
+      rawProbs: probs,
+    );
   }
-
-  // 8) Output
-  final output = List.generate(1, (_) => List.filled(labels.length, 0.0));
-  _interpreter!.run(input, output);
-
-  // 9) Softmax
-  final probs = _softmax(output[0]);
-
-  // 10) Apply threshold logic
-  final double distressedProb = probs[0];
-  final double normalProb = probs[1];
-
-  final label = distressedProb >= 0.50 ? 'Distressed' : 'Normal';
-  final confidence =
-      label == 'Distressed' ? distressedProb : normalProb;
-
-  return ExpressionResult(
-    label: label,
-    confidence: confidence,
-    rawProbs: probs,
-  );
-}
-
-  // ---- Helpers ----
 
   img.Image _centerCropSquare(img.Image src) {
     final w = src.width;
@@ -178,7 +153,6 @@ class ExpressionClassifier {
   }
 
   Future<void> saveDebugFace(img.Image faceCrop) async {
-    // Get the same public directory you used for audio
     final directory = await getExternalStorageDirectory();
 
     if (directory == null) {
@@ -244,11 +218,9 @@ class ExpressionClassifier {
   Rect _expandRect(Rect rect, int imgWidth, int imgHeight,
     {double paddingRatio = 0.25}) {
 
-    // padding amounts
     final double padW = rect.width * paddingRatio;
     final double padH = rect.height * paddingRatio;
 
-    // Expand rectangle
     double newLeft = (rect.left - padW).clamp(0, imgWidth - 1).toDouble();
     double newTop = (rect.top - padH).clamp(0, imgHeight - 1).toDouble();
     double newRight = (rect.right + padW).clamp(newLeft + 1, imgWidth).toDouble();

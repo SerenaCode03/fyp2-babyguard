@@ -91,8 +91,6 @@ flutter:
     - assets/normal_52h.wav
     - assets/pain_1s_3.wav
     - assets/pain_1s_4.wav
-    - assets/hunger_dac_1.wav
-    - assets/hunger_dac_2.wav
     - assets/pain_dac_1.wav
     - assets/pain_dac_2.wav
     - assets/prone_image.jpeg

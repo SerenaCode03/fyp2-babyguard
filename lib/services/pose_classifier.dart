@@ -45,18 +45,11 @@ class PoseClassifier {
     _interpreter = null;
   }
 
-  /// Classify pose from a CameraImage frame (full frame, no cropping here).
-  /// Later, for explainable AI, you can reuse the resized image inside this
-  /// method for Grad-CAM or saving crops.
   Future<PoseResult> classifyFromCameraImage(CameraImage image) async {
     if (_interpreter == null) {
       throw StateError('PoseClassifier: call loadModel() before classify.');
     }
-
-    // 1) Convert YUV420 -> RGB
     final rgbImage = _yuv420ToRgb(image);
-
-    // 2) Resize to model input size (adjust if your model uses different size)
     const inputSize = 224;
     final resized = img.copyResize(
       rgbImage,
@@ -67,7 +60,6 @@ class PoseClassifier {
     
     _saveDebugPose(resized);
 
-    // 3) Build input tensor [1, 224, 224, 3], float32 [0,1]
     final input = List.generate(
       1,
       (_) => List.generate(
@@ -101,7 +93,6 @@ class PoseClassifier {
       }
     }
 
-    // 4) Output buffer [1, 2] for [Abnormal, Normal]
     final output = List.generate(
       1,
       (_) => List.filled(labels.length, 0.0),
@@ -109,10 +100,8 @@ class PoseClassifier {
 
     _interpreter!.run(input, output);
 
-    // 5) Softmax probabilities
     final probs = _softmax(output[0]);
 
-    // 6) Argmax
     int bestIdx = 0;
     double bestProb = probs[0];
     for (int i = 1; i < probs.length; i++) {

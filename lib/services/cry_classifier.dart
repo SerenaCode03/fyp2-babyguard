@@ -86,8 +86,6 @@ class CryClassifier {
   Future<CryResult?> classifyLongAudio(String wavPath) async {
     if (!isLoaded) await load();
     final stopwatch = Stopwatch()..start();
-
-    // 1. Load & Parse WAV
     final bytes = await File(wavPath).readAsBytes();
     final wav = _parseWav(bytes);
     if (wav == null || wav.pcm16 == null){
@@ -95,36 +93,26 @@ class CryClassifier {
       return null;
     } 
 
-    // 2. Convert to Float32 & Resample (Full 5 seconds)
     Float32List fullAudio = _int16ToFloat32(wav.pcm16!);
     if (wav.sampleRate != sampleRate) {
       debugPrint("Resampling full buffer...");
       fullAudio = _resample(fullAudio, wav.sampleRate, sampleRate);
     }
 
-    // 3. Sliding Window Loop
-    // We will extract 1-second chunks (16000 samples)
     int step = 16000; 
     int totalSamples = fullAudio.length;
     
-    // Accumulators for voting
     Map<String, double> probabilitySum = {};
     for (var label in labels) probabilitySum[label] = 0.0;
     int validWindows = 0;
 
     debugPrint("--- Starting 5s Analysis (Total samples: $totalSamples) ---");
-
-    // Loop until we run out of full seconds
     for (int i = 0; i <= totalSamples - step; i += step) {
-      // Extract 1 second slice
       Float32List window = fullAudio.sublist(i, i + step);
-      
-      // Classify this specific second
       CryResult? res = await _classifySingleWindow(window, "win_${i ~/ step}");
       
       if (res != null && res.label != 'Silent') {
         validWindows++;
-        // Add probabilities to total
         for (int k = 0; k < res.rawProbs.length; k++) {
           probabilitySum[labels[k]] = (probabilitySum[labels[k]] ?? 0) + res.rawProbs[k];
         }
@@ -134,14 +122,12 @@ class CryClassifier {
       }
     }
 
-    // 4. Final Aggregation
     if (validWindows == 0) {
       stopwatch.stop();
       final totalMs = stopwatch.elapsedMilliseconds;
       return CryResult('Silent', 1.0, List.filled(labels.length, 0.0), totalMs);
     }
 
-    // Calculate average probabilities
     List<double> avgProbs = List.filled(labels.length, 0.0);
     double maxConf = -1.0;
     int maxIdx = 0;
