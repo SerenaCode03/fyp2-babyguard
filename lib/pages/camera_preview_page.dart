@@ -41,7 +41,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   final CryClassifier _cryClassifier = CryClassifier();
   final AudioRecorder _recorder = AudioRecorder();
   final XaiBackendService _xaiService = XaiBackendService();
-
   late final mlkit.FaceDetector _mlkitFaceDetector;
 
   bool _pipelineRunning = false;    // set to true after first face is seen
@@ -82,6 +81,49 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
   String? _lastRiskAlertLevel;
   DateTime _nextRiskAlertAllowed = DateTime.fromMillisecondsSinceEpoch(0);
+
+  int _xaiFailCount = 0;
+  DateTime _xaiDisabledUntil = DateTime.fromMillisecondsSinceEpoch(0);
+
+  String? _xaiOverlayMsg;
+  Timer? _xaiOverlayTimer;
+
+  void _showXaiOverlay(String msg) {
+    _xaiOverlayTimer?.cancel();
+
+    if (!mounted) return;
+    setState(() {
+      _xaiOverlayMsg = msg;
+    });
+
+    _xaiOverlayTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() {
+        _xaiOverlayMsg = null;
+      });
+    });
+  }
+
+  Widget _buildXaiStatusOverlay() {
+    if (_xaiOverlayMsg == null) return const SizedBox.shrink();
+
+    return Positioned(
+      bottom: 20,
+      right: 20,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.75),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withOpacity(0.15)),
+        ),
+        child: Text(
+          _xaiOverlayMsg!,
+          style: const TextStyle(color: Colors.white, fontSize: 12),
+        ),
+      ),
+    );
+  }
 
 
   static const Duration _riskWindow = Duration(seconds: 10);
@@ -546,7 +588,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       _nextRiskAlertAllowed = now.add(_riskCooldownFor(level));
       return true;
     }
-
     // Still in cooldown window → block
     return false;
   }
@@ -561,10 +602,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     final int currentUserId = SessionManager.currentUserId!;
 
     // SLEEP 
-    final bool sleepAbnormal =
-        sleepLabel == 'Abnormal' ||
-        sleepLabel == 'Prone' ||
-        sleepLabel == 'Side';
+    final bool sleepAbnormal = sleepLabel == 'Abnormal' ;
 
     if (sleepAbnormal && sleepLabel != _lastNotifiedSleepLabel) {
       NotificationCenter.instance.addAndPersist(
@@ -578,9 +616,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
     // EXPRESSION 
     final bool exprAbnormal =
-        exprLabel == 'Distressed' ||
-        exprLabel == 'Crying' ||
-        exprLabel == 'Uncomfortable';
+        exprLabel == 'Distressed';
 
     if (exprAbnormal && exprLabel != _lastNotifiedExprLabel) {
       NotificationCenter.instance.addAndPersist(
@@ -652,6 +688,11 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     required String exprLabel,
     required String cryLabel,
     }) async {
+    final now = DateTime.now();
+    if (now.isBefore(_xaiDisabledUntil)) {
+      // Backend already marked down; skip calling it
+      return;
+    }
     debugPrint('[XAI] Sending cached frame to backend...');
 
     final sw = Stopwatch()..start(); 
@@ -792,11 +833,20 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         '[XAI] Snapshot saved to ReportCenter + DB '
         '(backend labels + backend fusion).',
       );
+      _xaiFailCount = 0;
     } catch (e) {
       debugPrint('[XAI] Error sending snapshot: $e');
-    }
-    }
 
+      _xaiFailCount++;
+      // after 2 failures, stop trying for 5 minutes
+      if (_xaiFailCount >= 2) {
+        _xaiDisabledUntil = DateTime.now().add(const Duration(minutes: 2));
+        _xaiFailCount = 0; // reset counter after tripping breaker
+      }
+      _showXaiOverlay('XAI unavailable — continuing local monitoring');
+
+    }
+  }
 
   Future<File?> _captureColorSnapshot() async {
     try {
@@ -925,6 +975,9 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
     return risk;
   }
+
+  
+
 
   // MLKit helpers: CameraImage -> InputImage 
   mlkit.InputImage _inputImageFromCameraImage(CameraImage image) {
@@ -1219,6 +1272,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
                 },
               ),
             ),
+             _buildXaiStatusOverlay(),
           ],
         ),
       ),
