@@ -71,6 +71,19 @@ class CryClassifier {
     try {
       _pcm2rgb = await Interpreter.fromAsset(pcm2rgbModelPath);
       _cryNet = await Interpreter.fromAsset(cryModelPath);
+      // final options = InterpreterOptions()
+      //   ..threads = 2
+      //   ..useNnApiForAndroid = false;
+
+      // _pcm2rgb = await Interpreter.fromAsset(
+      //   pcm2rgbModelPath,
+      //   options: options,
+      // );
+
+      // _cryNet = await Interpreter.fromAsset(
+      //   cryModelPath,
+      //   options: options,
+      // );
       debugPrint("[CryClassifier] Models loaded successfully.");
     } catch (e) {
       debugPrint("[CryClassifier] Error loading models: $e");

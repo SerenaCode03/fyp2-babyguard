@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fyp2_babyguard/utilities/color.dart';
 import 'package:fyp2_babyguard/components/header_bar.dart';
 import '../services/session_manager.dart';
+import '../debug/latency_test_page_all.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -96,6 +97,26 @@ class SettingsPage extends StatelessWidget {
                       Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
                     },
                   ),
+
+                  // const SizedBox(height: 16),
+
+                  // _SettingsCard(
+                  //   leading: const Icon(Icons.speed_rounded, size: 30),
+                  //   title: 'Model Latency Test (Debug)',
+                  //   titleStyle: const TextStyle(
+                  //     fontWeight: FontWeight.w700,
+                  //     fontSize: 18,
+                  //   ),
+                  //   onTap: () {
+                  //     Navigator.push(
+                  //       context,
+                  //       MaterialPageRoute(
+                  //         builder: (_) => const LatencyTestAllModelsPage(),
+                  //       ),
+                  //     );
+                  //   },
+                  // ),
+
                 ],
               ),
             ),

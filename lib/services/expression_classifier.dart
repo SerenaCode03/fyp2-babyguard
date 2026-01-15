@@ -39,7 +39,8 @@ class ExpressionClassifier {
     if (_interpreter != null) return;
     _interpreter = await Interpreter.fromAsset(
       modelPath,
-      options: InterpreterOptions()..threads = 2,
+      options: InterpreterOptions()..threads = 2
+      // options: InterpreterOptions()..threads = 2 ..useNnApiForAndroid = false,
     );
     debugPrint('ExpressionClassifier: model loaded');
   }
