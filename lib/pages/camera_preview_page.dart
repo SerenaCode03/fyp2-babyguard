@@ -79,6 +79,8 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   String? _lastCloudCryLabel;
   String? _lastCloudRiskLevel;
 
+  DateTime _lastEmailTimestamp = DateTime.fromMillisecondsSinceEpoch(0);
+
   String? _lastRiskAlertLevel;
   DateTime _nextRiskAlertAllowed = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -690,7 +692,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     }) async {
     final now = DateTime.now();
     if (now.isBefore(_xaiDisabledUntil)) {
-      // Backend already marked down; skip calling it
       return;
     }
     debugPrint('[XAI] Sending cached frame to backend...');
@@ -790,7 +791,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       // BACKEND LABELS 
       final String backendPoseLabel = poseXai.label;
       final String backendExprLabel = exprXai?.label ?? exprLabel;
-      final String backendCryLabel = _lastCryXai?.label ?? cryLabel;
+      final String backendCryLabel = (cryLabel == 'Silent') ? 'Silent' : (_lastCryXai?.label ?? cryLabel);
 
       // BACKEND-BASED RISK FUSION
       final backendRisk = evaluateRisk(
@@ -814,7 +815,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         ),
         poseXai: poseXai,
         expressionXai: exprXai,
-        cryXai: _lastCryXai,
+        cryXai: (cryLabel == 'Silent') ? null : _lastCryXai,
         originalFrameFile: imageFile,
         poseLabel: backendPoseLabel,
         expressionLabel: backendExprLabel,
@@ -900,6 +901,10 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       cryLabel = _lastCryResult!.label;
     }
 
+    if (cryLabel == 'Silent') {
+      _lastCryXai = null;
+    }
+
     if (sleepLabel == 'Normal' &&
         exprLabel == 'Normal' &&
         cryLabel == 'Silent') {
@@ -930,10 +935,10 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     );
 
     if (risk.totalScore <= 0) {
-      _lastCloudSleepLabel = null;
-      _lastCloudExprLabel = null;
-      _lastCloudCryLabel = null;
-      _lastCloudRiskLevel = null;
+      // _lastCloudSleepLabel = null;
+      // _lastCloudExprLabel = null;
+      // _lastCloudCryLabel = null;
+      // _lastCloudRiskLevel = null;
       return risk;
     }
 
@@ -943,7 +948,10 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
           exprLabel != _lastCloudExprLabel ||
           cryLabel != _lastCloudCryLabel ||
           risk.riskLevel != _lastCloudRiskLevel;
-      if (!labelsChanged) {
+
+      final bool isCooldownOver = now.difference(_lastEmailTimestamp) > const Duration(minutes: 1);
+      
+      if (!labelsChanged && !isCooldownOver) {
         return risk;
       }
 
@@ -951,6 +959,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       _lastCloudExprLabel = exprLabel;
       _lastCloudCryLabel = cryLabel;
       _lastCloudRiskLevel = risk.riskLevel;
+      _lastEmailTimestamp = now;
 
       final summaryText = _composeAlertSummary(
         sleepLabel: sleepLabel,
