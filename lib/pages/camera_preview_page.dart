@@ -20,6 +20,7 @@ import 'package:fyp2_babyguard/services/session_manager.dart';
 import 'package:fyp2_babyguard/services/report_center.dart';
 import '../services/email_alert_service.dart';
 import '../services/cry_injection_manager.dart';
+import '../services/stable_flag.dart';
 
 class CameraPreviewPage extends StatefulWidget {
   final CameraController controller;
@@ -90,6 +91,17 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
   String? _xaiOverlayMsg;
   Timer? _xaiOverlayTimer;
 
+  //Stabilisation (prevents Normal<->Abnormal flicker) ---
+  final StableFlag _poseStable = StableFlag(enterK: 2, exitJ: 3);
+  final StableFlag _exprStable = StableFlag(enterK: 2, exitJ: 3);
+  final StableFlag _cryStable  = StableFlag(enterK: 2, exitJ: 3);
+
+  // --- Signature gating (send email + XAI only on state change) ---
+  String? _lastSentSignature;
+  String? _pendingSignature;
+  int _pendingSigCount = 0;
+  static const int _SIG_STABLE_K = 2; // require signature to appear twice before firing
+
   void _showXaiOverlay(String msg) {
     _xaiOverlayTimer?.cancel();
 
@@ -126,6 +138,27 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       ),
     );
   }
+
+  String _buildSignature({
+    required String riskLevel,
+    required String sleepLabel,
+    required String exprLabel,
+    required String cryLabel,
+  }) {
+    return '${riskLevel.toUpperCase()}|POSE=$sleepLabel|EXPR=$exprLabel|CRY=$cryLabel';
+  }
+
+  bool _signatureStableAndChanged(String sig) {
+    if (_pendingSignature == sig) {
+      _pendingSigCount++;
+    } else {
+      _pendingSignature = sig;
+      _pendingSigCount = 1;
+    }
+
+    return _pendingSigCount >= _SIG_STABLE_K && sig != _lastSentSignature;
+  }
+
 
 
   static const Duration _riskWindow = Duration(seconds: 10);
@@ -594,7 +627,6 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     return false;
   }
 
-
   void _pushNotificationsForLabels({
     required String sleepLabel,
     required String exprLabel,
@@ -905,22 +937,31 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       _lastCryXai = null;
     }
 
-    if (sleepLabel == 'Normal' &&
-        exprLabel == 'Normal' &&
-        cryLabel == 'Silent') {
-      return null;
-    }
+    // ---- Update stable flags (debounce/hysteresis) ----
+    final bool poseAbNow = sleepLabel == 'Abnormal';
+    final bool exprAbNow = exprLabel == 'Distressed';
+    final bool cryAbNow  = (cryLabel != 'Silent' && cryLabel != 'Normal');
+
+    _poseStable.update(abnormalNow: poseAbNow);
+    _exprStable.update(abnormalNow: exprAbNow);
+    _cryStable.update(abnormalNow: cryAbNow);
+
+    // Stable caregiver-facing labels (used for notifications/email/XAI gating)
+    final String stableSleepLabel = _poseStable.isAbnormal ? 'Abnormal' : 'Normal';
+    final String stableExprLabel  = _exprStable.isAbnormal ? 'Distressed' : 'Normal';
+    final String stableCryLabel   = _cryStable.isAbnormal ? cryLabel : 'Silent';
+
 
     _pushNotificationsForLabels(
-      sleepLabel: sleepLabel,
-      exprLabel: exprLabel,
-      cryLabel: cryLabel,
+      sleepLabel: stableSleepLabel,
+      exprLabel: stableExprLabel,
+      cryLabel: stableCryLabel,
     );
 
     final risk = evaluateRisk(
-      sleeping: Pred(sleepLabel),
-      expression: Pred(exprLabel),
-      cry: Pred(cryLabel),
+      sleeping: Pred(stableSleepLabel),
+      expression: Pred(stableExprLabel),
+      cry: Pred(stableCryLabel),
     );
 
     setState(() {
@@ -934,59 +975,62 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       'sendToCloud=${risk.shouldSendToCloud}',
     );
 
+    final bool isBaseline =
+    stableSleepLabel == 'Normal' &&
+    stableExprLabel == 'Normal' &&
+    stableCryLabel == 'Silent';
+
+    // Baseline should NEVER send email/XAI and reset pending signature so the next abnormal can trigger properly.
+    if (isBaseline) {
+      _pendingSignature = null;
+      _pendingSigCount = 0;
+      _lastSentSignature = null;
+      return risk; 
+    }
+
     if (risk.totalScore <= 0) {
-      // _lastCloudSleepLabel = null;
-      // _lastCloudExprLabel = null;
-      // _lastCloudCryLabel = null;
-      // _lastCloudRiskLevel = null;
       return risk;
     }
 
-    if (risk.shouldSendToCloud) {
-      final bool labelsChanged =
-          sleepLabel != _lastCloudSleepLabel ||
-          exprLabel != _lastCloudExprLabel ||
-          cryLabel != _lastCloudCryLabel ||
-          risk.riskLevel != _lastCloudRiskLevel;
+    final sig = _buildSignature(
+      riskLevel: risk.riskLevel,
+      sleepLabel: stableSleepLabel,
+      exprLabel: stableExprLabel,
+      cryLabel: stableCryLabel,
+    );
 
-      final bool isCooldownOver = now.difference(_lastEmailTimestamp) > const Duration(minutes: 1);
-      
-      if (!labelsChanged && !isCooldownOver) {
-        return risk;
-      }
-
-      _lastCloudSleepLabel = sleepLabel;
-      _lastCloudExprLabel = exprLabel;
-      _lastCloudCryLabel = cryLabel;
-      _lastCloudRiskLevel = risk.riskLevel;
-      _lastEmailTimestamp = now;
-
-      final summaryText = _composeAlertSummary(
-        sleepLabel: sleepLabel,
-        exprLabel: exprLabel,
-        cryLabel: cryLabel,
-        riskLevel: risk.riskLevel,
-      );
-      EmailAlertService.instance.sendRiskEmail(
-        riskLevel: risk.riskLevel,
-        sleepLabel: sleepLabel,
-        exprLabel: exprLabel,
-        cryLabel: cryLabel,
-        summary: summaryText,
-      );
-      _sendXaiRequest(
-        risk: risk,
-        sleepLabel: sleepLabel,
-        exprLabel: exprLabel,
-        cryLabel: cryLabel,
-      );
+    // Only fire when signature is stable and different from last sent
+    if (!_signatureStableAndChanged(sig)) {
+      return risk;
     }
+
+    _lastSentSignature = sig;
+    _lastEmailTimestamp = now;
+
+    final summaryText = _composeAlertSummary(
+      sleepLabel: stableSleepLabel,
+      exprLabel: stableExprLabel,
+      cryLabel: stableCryLabel,
+      riskLevel: risk.riskLevel,
+    );
+
+    EmailAlertService.instance.sendRiskEmail(
+      riskLevel: risk.riskLevel,
+      sleepLabel: stableSleepLabel,
+      exprLabel: stableExprLabel,
+      cryLabel: stableCryLabel,
+      summary: summaryText,
+    );
+
+    _sendXaiRequest(
+      risk: risk,
+      sleepLabel: stableSleepLabel,
+      exprLabel: stableExprLabel,
+      cryLabel: stableCryLabel,
+    );
 
     return risk;
   }
-
-  
-
 
   // MLKit helpers: CameraImage -> InputImage 
   mlkit.InputImage _inputImageFromCameraImage(CameraImage image) {
