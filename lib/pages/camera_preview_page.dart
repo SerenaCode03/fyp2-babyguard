@@ -911,7 +911,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
   RiskResult? _evaluateAndMaybeSendXAI() {
     final now = DateTime.now();
-
+ 
     String sleepLabel = 'Normal';
     if (_lastPoseResult != null &&
         _poseTimestamp != null &&
