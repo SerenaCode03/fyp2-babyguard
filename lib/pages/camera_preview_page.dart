@@ -410,6 +410,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
         } else {
           debugPrint('MLKit: no face for this frame, skip expression');
+          faceRectForExpr = null;
         }
       } catch (e) {
         debugPrint('MLKit face detection (pipeline) error: $e');
@@ -519,6 +520,12 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
     return imgBuffer;
   }
+
+  bool _isFresh(DateTime? ts) {
+    if (ts == null) return false;
+    return DateTime.now().difference(ts) <= _riskWindow;
+  }
+
 
 
   Future<void> _sendCryXai(String wavPath) async {
@@ -750,6 +757,9 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
       // 2) Prepare expression XAI image using cached face rect (if any)
       File? exprImageFile;
+      final bool hasRecentFace = _lastExprFaceRect != null;
+      final bool shouldRunExprXai = hasRecentFace; // simplest rule
+
       final faceRect = _lastExprFaceRect;
 
       if (faceRect != null) {
@@ -805,11 +815,16 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
       // 3) Expression XAI: prefer cropped face; fallback to full color frame
       XaiResult? exprXai;
-      try {
-        final fileForExpr = exprImageFile ?? imageFile;
-        exprXai = await _xaiService.predictExpression(fileForExpr);
-      } catch (e) {
-        debugPrint('[XAI] Expression call failed: $e');
+      if (shouldRunExprXai) {
+        try {
+          final fileForExpr = exprImageFile ?? imageFile;
+          exprXai = await _xaiService.predictExpression(fileForExpr);
+        } catch (e) {
+          debugPrint('[XAI] Expression call failed: $e');
+        }
+      } else {
+        debugPrint('[XAI] Skip expression XAI: no face detected/cached');
+        exprXai = null;
       }
 
       if (!mounted) return;
@@ -1190,6 +1205,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool cryFresh = _lastCryResult != null && _isFresh(_cryTimestamp);
     return WillPopScope(
       onWillPop: () async {
         await _handleBack();
@@ -1202,6 +1218,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
             FutureBuilder<void>(
               future: widget.initializeFuture,
               builder: (context, snapshot) {
+                
                 if (snapshot.connectionState == ConnectionState.done) {
                   return _buildFullLandscapePreview();
                 } else {
@@ -1249,7 +1266,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _lastCryResult != null
+                      cryFresh
                           ? 'Cry: ${_lastCryResult!.label} '
                             '(${(_lastCryResult!.confidence * 100).toStringAsFixed(1)}%)'
                             '${_cryLatencyMs != null ? " (${_cryLatencyMs} ms)" : ""}'
