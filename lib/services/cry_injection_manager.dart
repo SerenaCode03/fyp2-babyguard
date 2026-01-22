@@ -20,7 +20,7 @@ extension CryTestTypeX on CryTestType {
       case CryTestType.hungry:
         return 'assets/hunger_4.wav';
       case CryTestType.normal:
-        return 'assets/normal_52h.wav';
+        return 'assets/52k.wav';
       case CryTestType.pain:
         return 'assets/pain_dac_2.wav';
     }

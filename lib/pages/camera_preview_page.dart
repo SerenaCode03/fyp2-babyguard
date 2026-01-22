@@ -411,6 +411,15 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
         } else {
           debugPrint('MLKit: no face for this frame, skip expression');
           faceRectForExpr = null;
+          expressionResult = null;
+
+          if (mounted) {
+            setState(() {
+              _lastExpressionResult = null;
+              _exprTimestamp = null;
+              _exprLatencyMs = null;
+            });
+          }
         }
       } catch (e) {
         debugPrint('MLKit face detection (pipeline) error: $e');
@@ -670,7 +679,8 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     }
 
     // CRY 
-    final bool cryAbnormal = cryLabel != 'Silent' && cryLabel != 'Normal';
+    // final bool cryAbnormal = cryLabel != 'Silent' && cryLabel != 'Normal';
+    final bool cryAbnormal = cryLabel != 'Silent';
 
     if (cryAbnormal && cryLabel != _lastNotifiedCryLabel) {
       final String title = (cryLabel == 'Asphyxia')
@@ -697,19 +707,22 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     required String exprLabel,
     required String cryLabel,
     required String riskLevel,
+    required bool faceDetected,
   }) {
     final parts = <String>[];
 
-    // Tune these exact strings to match your FYP wording
-    if (sleepLabel != 'Normal' && sleepLabel != 'Supine') {
-      parts.add('Abnormal sleeping position detected ($sleepLabel).');
-    }
-
-    if (exprLabel != 'Normal') {
+    if (!faceDetected) {
+      parts.add('Face not detected in the latest frame (expression not evaluated).');
+    } else if (exprLabel != 'Normal') {
       parts.add('Facial expression indicates $exprLabel.');
     }
 
-    if (cryLabel != 'Silent' && cryLabel != 'Normal') {
+    // Tune these exact strings to match your FYP wording
+    if (sleepLabel != 'Normal') {
+      parts.add('Abnormal sleeping position detected ($sleepLabel).');
+    }
+
+    if (cryLabel != 'Silent') {
       parts.add('$cryLabel cry detected.');
     }
 
@@ -850,6 +863,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       sw.stop();
       final int backendMs = sw.elapsedMilliseconds;
       debugPrint("[XAI Latency] XAI & Report generation latency: ${backendMs} ms");
+      final bool faceDetectedInXai = exprXai != null;
 
       final snapshot = AlertSnapshot(
         time: DateTime.now(),
@@ -859,6 +873,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
           exprLabel: backendExprLabel,
           cryLabel: backendCryLabel,
           riskLevel: backendRisk.riskLevel,
+          faceDetected: faceDetectedInXai,
         ),
         poseXai: poseXai,
         expressionXai: exprXai,
@@ -926,6 +941,12 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
 
   RiskResult? _evaluateAndMaybeSendXAI() {
     final now = DateTime.now();
+    final bool faceDetected =
+      _lastExprFaceRect != null &&
+      _lastExpressionResult != null &&
+      _exprTimestamp != null &&
+      now.difference(_exprTimestamp!) <= _riskWindow;
+
  
     String sleepLabel = 'Normal';
     if (_lastPoseResult != null &&
@@ -955,7 +976,7 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
     // ---- Update stable flags (debounce/hysteresis) ----
     final bool poseAbNow = sleepLabel == 'Abnormal';
     final bool exprAbNow = exprLabel == 'Distressed';
-    final bool cryAbNow  = (cryLabel != 'Silent' && cryLabel != 'Normal');
+    final bool cryAbNow  = (cryLabel != 'Silent');
 
     _poseStable.update(abnormalNow: poseAbNow);
     _exprStable.update(abnormalNow: exprAbNow);
@@ -1027,12 +1048,15 @@ class _CameraPreviewPageState extends State<CameraPreviewPage> {
       exprLabel: stableExprLabel,
       cryLabel: stableCryLabel,
       riskLevel: risk.riskLevel,
+      faceDetected: faceDetected,
     );
+
+    final String emailExprLabel = faceDetected ? stableExprLabel : 'No face detected';
 
     EmailAlertService.instance.sendRiskEmail(
       riskLevel: risk.riskLevel,
       sleepLabel: stableSleepLabel,
-      exprLabel: stableExprLabel,
+      exprLabel: emailExprLabel,
       cryLabel: stableCryLabel,
       summary: summaryText,
     );
